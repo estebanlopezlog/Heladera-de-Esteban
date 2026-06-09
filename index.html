@@ -17,7 +17,7 @@
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="inventory">📋 Inventario</button>
       <button class="tab-btn" data-tab="alerts">🔔 Alertas</button>
-      <button class="tab-btn" data-tab="recipes">👨‍🍳 Recetas</button>
+      <button class="tab-btn" data-tab="recipes">📖 Recetas</button>
     </nav>
 
     <!-- ── Inventario ── -->
@@ -50,19 +50,19 @@
 
     <!-- ── Recetas ── -->
     <div id="tab-recipes" class="tab-content" style="display:none">
-      <div class="recipes-panel">
-        <div class="recipes-hint">
-          Escribí los ingredientes que necesitás, uno por línea.<br>
-          Podés incluir cantidades: <strong>2 huevos</strong>, <strong>500g harina</strong>, <strong>1 litro leche</strong>
-        </div>
-        <textarea id="recipe-input" class="recipe-input"
-          placeholder="2 huevos&#10;500g harina&#10;1 litro leche&#10;manteca"></textarea>
-        <div class="recipe-buttons">
-          <button id="btn-check-recipe" class="btn btn-primary">🔍 Verificar receta</button>
-          <button id="btn-clear-recipe" class="btn btn-secondary">Limpiar</button>
-        </div>
-        <div id="recipe-results"></div>
+
+      <!-- Vista: lista de recetas -->
+      <div id="recipes-list-view">
+        <div id="recipes-list" class="recipes-list"></div>
+        <button id="btn-add-recipe" class="btn-fab" title="Nueva receta">+</button>
       </div>
+
+      <!-- Vista: verificar receta contra stock -->
+      <div id="recipes-check-view" style="display:none">
+        <button id="btn-back-recipes" class="btn-back">← Volver</button>
+        <div id="recipe-check-content"></div>
+      </div>
+
     </div>
 
   </div><!-- /#app -->
@@ -131,6 +131,40 @@
         <div class="form-actions">
           <button type="button" id="btn-cancel" class="btn btn-secondary">Cancelar</button>
           <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Modal crear / editar receta ── -->
+  <div id="recipe-modal" class="modal">
+    <div id="recipe-modal-overlay" class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="recipe-modal-title">Nueva receta</h2>
+        <button id="recipe-modal-close" class="modal-close" aria-label="Cerrar">✕</button>
+      </div>
+      <form id="recipe-form" class="item-form" novalidate>
+        <div class="form-group">
+          <label for="recipe-field-name">Nombre de la receta *</label>
+          <input type="text" id="recipe-field-name" name="recipeName" required
+            autocomplete="off" placeholder="ej: Tortilla de papas">
+        </div>
+        <div class="form-group">
+          <label>Ingredientes *</label>
+          <div id="ingredients-container" class="ingredients-container"></div>
+          <button type="button" id="btn-add-ingredient" class="btn-add-ingredient">
+            + Agregar ingrediente
+          </button>
+        </div>
+        <div class="form-group">
+          <label for="recipe-field-notes">Notas (opcional)</label>
+          <textarea id="recipe-field-notes" name="notes" rows="2"
+            placeholder="Instrucciones, tips, sugerencias..."></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="btn-cancel-recipe" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar receta</button>
         </div>
       </form>
     </div>

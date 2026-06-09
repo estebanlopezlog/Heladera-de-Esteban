@@ -558,6 +558,167 @@ input:focus, select:focus {
 
 .form-actions .btn { flex: 1; padding: 12px; }
 
+/* ── Recipe book ── */
+.recipes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recipe-book-card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 15px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.recipe-book-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.recipe-book-info { flex: 1; min-width: 0; }
+
+.recipe-book-name {
+  font-weight: 600;
+  font-size: .9375rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recipe-book-meta {
+  font-size: .8125rem;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
+.recipe-book-notes {
+  font-size: .8125rem;
+  color: var(--gray-500);
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.recipe-book-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.btn-verify {
+  border: none;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: .75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+  margin-bottom: 2px;
+}
+
+.btn-verify:hover { background: #bfdbfe; }
+
+/* ── Recipe check view ── */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: .875rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: background .15s;
+}
+
+.btn-back:hover { background: var(--gray-200); }
+
+.check-recipe-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.check-recipe-notes {
+  font-size: .875rem;
+  color: var(--gray-500);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+/* ── Recipe modal — ingredient rows ── */
+.ingredients-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ingredient-row {
+  display: grid;
+  grid-template-columns: 1fr 72px 90px auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.ingredient-row input,
+.ingredient-row select {
+  padding: 8px 10px;
+  font-size: .875rem;
+}
+
+.btn-remove-ing {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--danger-light);
+  color: var(--danger);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: .875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+
+.btn-remove-ing:hover { background: #fca5a5; }
+
+.btn-add-ingredient {
+  border: 1.5px dashed var(--gray-300);
+  background: none;
+  color: var(--gray-500);
+  border-radius: var(--radius-sm);
+  padding: 9px;
+  width: 100%;
+  font-size: .875rem;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  text-align: center;
+}
+
+.btn-add-ingredient:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 /* ── Responsive tweaks for larger screens ── */
 @media (min-width: 600px) {
   body { box-shadow: 0 0 0 1px var(--gray-200); }
