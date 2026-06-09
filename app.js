@@ -403,7 +403,7 @@ function renderRecipeList() {
 
 function getRecipeStockStatus(recipe) {
   if (recipe.ingredients.length === 0) return 'green';
-  const results    = checkRecipeAgainstStock(recipe, state.items);
+  const results    = checkRecipeAgainstStock(recipe, state.items.filter(i => getItemStatus(i) !== 'expired'));
   const nAvailable = results.filter(r => r.status === 'available').length;
   const nMissing   = results.filter(r => r.status === 'missing').length;
   if (nAvailable === results.length) return 'green';
@@ -445,7 +445,7 @@ function renderRecipeCheckView() {
   const el     = document.getElementById('recipe-check-content');
   if (!recipe) { el.innerHTML = ''; return; }
 
-  const results  = checkRecipeAgainstStock(recipe, state.items);
+  const results  = checkRecipeAgainstStock(recipe, state.items.filter(i => getItemStatus(i) !== 'expired'));
   const missing  = results.filter(r => r.status === 'missing');
   const insuf    = results.filter(r => r.status === 'insufficient');
   const canCook  = missing.length === 0 && insuf.length === 0;
