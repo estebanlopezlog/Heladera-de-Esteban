@@ -401,15 +401,33 @@ function renderRecipeList() {
   el.innerHTML = state.recipes.map(recipeCardHtml).join('');
 }
 
+function getRecipeStockStatus(recipe) {
+  if (recipe.ingredients.length === 0) return 'green';
+  const results    = checkRecipeAgainstStock(recipe, state.items);
+  const nAvailable = results.filter(r => r.status === 'available').length;
+  const nMissing   = results.filter(r => r.status === 'missing').length;
+  if (nAvailable === results.length) return 'green';
+  if (nMissing   === results.length) return 'red';
+  return 'yellow';
+}
+
+const RECIPE_STATUS_LABEL = {
+  green:  'Listo para cocinar',
+  yellow: 'Ingredientes incompletos',
+  red:    'Sin ingredientes en stock',
+};
+
 function recipeCardHtml(recipe) {
+  const stockStatus = getRecipeStockStatus(recipe);
   const count = recipe.ingredients.length;
   const notes = recipe.notes ? `<div class="recipe-book-notes">${escHtml(recipe.notes)}</div>` : '';
   return `
-    <div class="recipe-book-card">
+    <div class="recipe-book-card recipe-book-card--${stockStatus}">
       <div class="recipe-book-icon">🍽️</div>
       <div class="recipe-book-info">
         <div class="recipe-book-name">${escHtml(recipe.name)}</div>
         <div class="recipe-book-meta">${count} ingrediente${count !== 1 ? 's' : ''}</div>
+        <span class="recipe-stock-pill recipe-stock-pill--${stockStatus}">${RECIPE_STATUS_LABEL[stockStatus]}</span>
         ${notes}
       </div>
       <div class="recipe-book-actions">
