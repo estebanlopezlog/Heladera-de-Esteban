@@ -4,9 +4,6 @@
 //  Constants
 // ════════════════════════════════════════════════════════════
 
-const STORAGE_KEY  = 'heladera-esteban-v1';
-const RECIPES_KEY  = 'heladera-recetas-v1';
-
 const CATEGORIES = [
   { id: 'lacteos',     label: 'Lácteos',     emoji: '🥛' },
   { id: 'carnes',      label: 'Carnes',       emoji: '🥩' },
@@ -25,70 +22,40 @@ const UNITS = ['unidades', 'kg', 'g', 'litros', 'ml', 'porciones', 'fetas', 'taz
 const EXPIRY_WARN_DAYS = 3;
 
 // ════════════════════════════════════════════════════════════
-//  Inventory storage
+//  API client
 // ════════════════════════════════════════════════════════════
 
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return seedData();
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : (parsed.items || []);
-  } catch { return []; }
+const API_BASE = '/api';
+
+async function apiRequest(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    let message = `Error ${res.status}`;
+    try { message = (await res.json()).error || message; } catch {}
+    throw new Error(message);
+  }
+  if (res.status === 204) return null;
+  return res.json();
 }
 
-function saveItems(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
+const api = {
+  getItems:    ()       => apiRequest('/items'),
+  createItem:  (item)   => apiRequest('/items', { method: 'POST', body: JSON.stringify(item) }),
+  updateItem:  (id, item) => apiRequest(`/items/${id}`, { method: 'PUT', body: JSON.stringify(item) }),
+  deleteItem:  (id)     => apiRequest(`/items/${id}`, { method: 'DELETE' }),
 
-// ════════════════════════════════════════════════════════════
-//  Recipe storage
-// ════════════════════════════════════════════════════════════
+  getRecipes:    ()         => apiRequest('/recipes'),
+  createRecipe:  (recipe)   => apiRequest('/recipes', { method: 'POST', body: JSON.stringify(recipe) }),
+  updateRecipe:  (id, recipe) => apiRequest(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(recipe) }),
+  deleteRecipe:  (id)       => apiRequest(`/recipes/${id}`, { method: 'DELETE' }),
+};
 
-function loadRecipes() {
-  try {
-    const raw = localStorage.getItem(RECIPES_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-
-function saveRecipes(recipes) {
-  localStorage.setItem(RECIPES_KEY, JSON.stringify(recipes));
-}
-
-// ════════════════════════════════════════════════════════════
-//  ID generator
-// ════════════════════════════════════════════════════════════
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
-// ════════════════════════════════════════════════════════════
-//  Seed data (first visit only)
-// ════════════════════════════════════════════════════════════
-
-function offsetDate(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function seedData() {
-  const items = [
-    { id: generateId(), name: 'Leche entera',    quantity: 1.5, unit: 'litros',   category: 'lacteos',     expiryDate: offsetDate(5),  minQuantity: 0.5, addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Yogur natural',   quantity: 3,   unit: 'unidades', category: 'lacteos',     expiryDate: offsetDate(2),  minQuantity: 0,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Queso cremoso',   quantity: 0.3, unit: 'kg',       category: 'lacteos',     expiryDate: offsetDate(10), minQuantity: 0.1, addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Huevos',          quantity: 6,   unit: 'unidades', category: 'huevos',      expiryDate: offsetDate(18), minQuantity: 4,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Pollo',           quantity: 0.5, unit: 'kg',       category: 'carnes',      expiryDate: offsetDate(-1), minQuantity: 0,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Tomate',          quantity: 4,   unit: 'unidades', category: 'verduras',    expiryDate: null,           minQuantity: 0,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Manzana',         quantity: 3,   unit: 'unidades', category: 'frutas',      expiryDate: offsetDate(7),  minQuantity: 0,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Jugo de naranja', quantity: 0.4, unit: 'litros',   category: 'bebidas',     expiryDate: offsetDate(8),  minQuantity: 1,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Ketchup',         quantity: 1,   unit: 'unidades', category: 'condimentos', expiryDate: null,           minQuantity: 0,   addedDate: offsetDate(0) },
-    { id: generateId(), name: 'Jamón cocido',    quantity: 0.15, unit: 'kg',      category: 'fiambres',    expiryDate: offsetDate(3),  minQuantity: 0,   addedDate: offsetDate(0) },
-  ];
-  saveItems(items);
-  return items;
+function reportError(err) {
+  console.error(err);
+  alert(`Hubo un problema: ${err.message}`);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -141,6 +108,10 @@ function getAlerts(items) {
   return alerts;
 }
 
+function nonExpiredItems() {
+  return state.items.filter(i => getItemStatus(i) !== 'expired');
+}
+
 // ════════════════════════════════════════════════════════════
 //  Recipe checker
 // ════════════════════════════════════════════════════════════
@@ -167,15 +138,17 @@ function checkRecipeAgainstStock(recipe, inventoryItems) {
 
 const state = {
   // inventory
-  items:          loadItems(),
+  items:          [],
   activeTab:      'inventory',
   filterCategory: 'all',
   editingItem:    null,
   // recipe book
-  recipes:           loadRecipes(),
+  recipes:           [],
   recipesView:       'list',   // 'list' | 'check'
   checkingRecipeId:  null,
   editingRecipe:     null,
+  // loading
+  loading: true,
 };
 
 // ════════════════════════════════════════════════════════════
@@ -203,6 +176,14 @@ function unitOptions(selected) {
 // ════════════════════════════════════════════════════════════
 
 function renderApp() {
+  if (state.loading) {
+    document.getElementById('app-loading').style.display = 'flex';
+    document.getElementById('app-main').style.display = 'none';
+    return;
+  }
+  document.getElementById('app-loading').style.display = 'none';
+  document.getElementById('app-main').style.display = 'block';
+
   const alerts = getAlerts(state.items);
 
   const badge = document.getElementById('alert-badge');
@@ -403,7 +384,7 @@ function renderRecipeList() {
 
 function getRecipeStockStatus(recipe) {
   if (recipe.ingredients.length === 0) return 'green';
-  const results    = checkRecipeAgainstStock(recipe, state.items.filter(i => getItemStatus(i) !== 'expired'));
+  const results    = checkRecipeAgainstStock(recipe, nonExpiredItems());
   const nAvailable = results.filter(r => r.status === 'available').length;
   const nMissing   = results.filter(r => r.status === 'missing').length;
   if (nAvailable === results.length) return 'green';
@@ -445,7 +426,7 @@ function renderRecipeCheckView() {
   const el     = document.getElementById('recipe-check-content');
   if (!recipe) { el.innerHTML = ''; return; }
 
-  const results  = checkRecipeAgainstStock(recipe, state.items.filter(i => getItemStatus(i) !== 'expired'));
+  const results  = checkRecipeAgainstStock(recipe, nonExpiredItems());
   const missing  = results.filter(r => r.status === 'missing');
   const insuf    = results.filter(r => r.status === 'insufficient');
   const canCook  = missing.length === 0 && insuf.length === 0;
@@ -516,7 +497,7 @@ function closeModal() {
   state.editingItem = null;
 }
 
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
   const name = fd.get('name').trim();
@@ -531,24 +512,35 @@ function handleFormSubmit(e) {
     minQuantity: parseFloat(fd.get('minQty')) || 0,
   };
 
-  if (state.editingItem) {
-    const idx = state.items.findIndex(i => i.id === state.editingItem.id);
-    if (idx !== -1) state.items[idx] = { ...state.items[idx], ...itemData };
-  } else {
-    state.items.push({ id: generateId(), addedDate: new Date().toISOString().slice(0, 10), ...itemData });
-  }
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
 
-  saveItems(state.items);
-  closeModal();
-  renderApp();
+  try {
+    if (state.editingItem) {
+      await api.updateItem(state.editingItem.id, itemData);
+    } else {
+      await api.createItem(itemData);
+    }
+    state.items = await api.getItems();
+    closeModal();
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
-function deleteItem(id) {
+async function deleteItem(id) {
   const item = state.items.find(i => i.id === id);
   if (!item || !confirm(`¿Eliminás "${item.name}" de la heladera?`)) return;
-  state.items = state.items.filter(i => i.id !== id);
-  saveItems(state.items);
-  renderApp();
+  try {
+    await api.deleteItem(id);
+    state.items = await api.getItems();
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -619,7 +611,7 @@ function getIngredientsFromForm() {
   return ingredients;
 }
 
-function handleRecipeFormSubmit(e) {
+async function handleRecipeFormSubmit(e) {
   e.preventDefault();
   const name = document.getElementById('recipe-field-name').value.trim();
   if (!name) return;
@@ -636,28 +628,35 @@ function handleRecipeFormSubmit(e) {
     notes: document.getElementById('recipe-field-notes').value.trim(),
   };
 
-  if (state.editingRecipe) {
-    const idx = state.recipes.findIndex(r => r.id === state.editingRecipe.id);
-    if (idx !== -1) state.recipes[idx] = { ...state.recipes[idx], ...recipeData };
-  } else {
-    state.recipes.push({
-      id:          generateId(),
-      createdDate: new Date().toISOString().slice(0, 10),
-      ...recipeData,
-    });
-  }
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
 
-  saveRecipes(state.recipes);
-  closeRecipeModal();
-  renderApp();
+  try {
+    if (state.editingRecipe) {
+      await api.updateRecipe(state.editingRecipe.id, recipeData);
+    } else {
+      await api.createRecipe(recipeData);
+    }
+    state.recipes = await api.getRecipes();
+    closeRecipeModal();
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
-function deleteRecipe(id) {
+async function deleteRecipe(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe || !confirm(`¿Eliminás la receta "${recipe.name}"?`)) return;
-  state.recipes = state.recipes.filter(r => r.id !== id);
-  saveRecipes(state.recipes);
-  renderApp();
+  try {
+    await api.deleteRecipe(id);
+    state.recipes = await api.getRecipes();
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -740,7 +739,18 @@ function setupEvents() {
 //  Init
 // ════════════════════════════════════════════════════════════
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   setupEvents();
   renderApp();
+
+  try {
+    const [items, recipes] = await Promise.all([api.getItems(), api.getRecipes()]);
+    state.items = items;
+    state.recipes = recipes;
+  } catch (err) {
+    reportError(err);
+  } finally {
+    state.loading = false;
+    renderApp();
+  }
 });
