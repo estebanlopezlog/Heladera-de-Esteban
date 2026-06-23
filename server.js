@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const itemsTable = new SheetTable('Items', [
   'id', 'name', 'quantity', 'unit', 'category', 'expiryDate', 'minQuantity', 'addedDate',
 ]);
-const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'createdDate']);
+const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'steps', 'servings', 'createdDate']);
 const ingredientsTable = new SheetTable('RecipeIngredients', ['recipeId', 'name', 'quantity', 'unit']);
 
 function generateId() {
@@ -93,6 +93,8 @@ app.get('/api/recipes', async (req, res) => {
       id: r.id,
       name: r.name,
       notes: r.notes || '',
+      steps: r.steps || '',
+      servings: parseInt(r.servings, 10) || 1,
       createdDate: r.createdDate,
       ingredients: ingredients
         .filter(ing => ing.recipeId === r.id)
@@ -116,6 +118,8 @@ app.post('/api/recipes', async (req, res) => {
       id,
       name: req.body.name,
       notes: req.body.notes || '',
+      steps: req.body.steps || '',
+      servings: req.body.servings || 1,
       createdDate: new Date().toISOString().slice(0, 10),
     };
     await recipesTable.append(recipe);
@@ -135,7 +139,12 @@ app.put('/api/recipes/:id', async (req, res) => {
   try {
     const id = req.params.id;
     await recipesTable.update(id, {
-      id, name: req.body.name, notes: req.body.notes || '', createdDate: req.body.createdDate || '',
+      id,
+      name: req.body.name,
+      notes: req.body.notes || '',
+      steps: req.body.steps || '',
+      servings: req.body.servings || 1,
+      createdDate: req.body.createdDate || '',
     });
     await ingredientsTable.deleteWhere('recipeId', id);
     for (const ing of req.body.ingredients || []) {

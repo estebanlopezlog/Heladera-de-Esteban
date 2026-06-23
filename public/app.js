@@ -132,6 +132,19 @@ function checkRecipeAgainstStock(recipe, inventoryItems) {
   });
 }
 
+/** How many platos se pueden cocinar de esta receta con el stock disponible. */
+function computeMaxPlates(recipe, inventoryItems) {
+  const results = checkRecipeAgainstStock(recipe, inventoryItems);
+  if (results.some(r => r.status === 'missing')) return 0;
+
+  const measured = results.filter(r => r.quantity);
+  const maxBatches = measured.length === 0
+    ? 1
+    : Math.min(...measured.map(r => Math.floor(r.inventoryItem.quantity / r.quantity)));
+
+  return Math.max(0, maxBatches) * (recipe.servings || 1);
+}
+
 // ════════════════════════════════════════════════════════════
 //  App state
 // ════════════════════════════════════════════════════════════
@@ -194,7 +207,7 @@ function renderApp() {
     btn.classList.toggle('active', btn.dataset.tab === state.activeTab);
   });
 
-  const tabIds = { inventory: 'tab-inventory', alerts: 'tab-alerts', recipes: 'tab-recipes' };
+  const tabIds = { inventory: 'tab-inventory', alerts: 'tab-alerts', recipes: 'tab-recipes', resumen: 'tab-resumen' };
   Object.entries(tabIds).forEach(([key, id]) => {
     document.getElementById(id).style.display = state.activeTab === key ? 'block' : 'none';
   });
@@ -202,6 +215,7 @@ function renderApp() {
   if (state.activeTab === 'inventory') renderInventory(alerts);
   if (state.activeTab === 'alerts')    renderAlerts(alerts);
   if (state.activeTab === 'recipes')   renderRecipeBook();
+  if (state.activeTab === 'resumen')   renderResumen(alerts);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -430,9 +444,12 @@ function renderRecipeCheckView() {
   const missing  = results.filter(r => r.status === 'missing');
   const insuf    = results.filter(r => r.status === 'insufficient');
   const canCook  = missing.length === 0 && insuf.length === 0;
+  const plates   = computeMaxPlates(recipe, nonExpiredItems());
 
   const notesHtml = recipe.notes
     ? `<p class="check-recipe-notes">${escHtml(recipe.notes)}</p>` : '';
+  const stepsHtml = recipe.steps
+    ? `<div class="check-recipe-steps"><h3>Pasos</h3><p>${escHtml(recipe.steps)}</p></div>` : '';
 
   const rows = results.map(r => {
     const icon   = r.status === 'available' ? '✅' : r.status === 'missing' ? '❌' : '⚠️';
@@ -459,11 +476,76 @@ function renderRecipeCheckView() {
     <div class="recipe-result">
       <div class="recipe-verdict recipe-verdict--${canCook ? 'yes' : 'no'}">
         ${canCook
-          ? '✅ ¡Podés prepararlo! Tenés todo lo necesario'
+          ? `✅ ¡Podés prepararlo! Te alcanza para ${plates} plato${plates !== 1 ? 's' : ''}`
           : `❌ Faltan ${missing.length + insuf.length} ingrediente${missing.length + insuf.length !== 1 ? 's'  : ''}`}
       </div>
       <div class="recipe-table">${rows}</div>
+      ${stepsHtml}
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Render — Resumen
+// ════════════════════════════════════════════════════════════
+
+function renderResumen(alerts) {
+  const critical = alerts.filter(a => a.type === 'expired' || a.type === 'expiring' || a.type === 'low');
+  const stock = nonExpiredItems();
+
+  const cookable = state.recipes
+    .map(recipe => ({ recipe, plates: computeMaxPlates(recipe, stock) }))
+    .sort((a, b) => b.plates - a.plates);
+
+  const criticalHtml = critical.length === 0
+    ? `<p class="resumen-empty">No hay productos en estado crítico. 👍</p>`
+    : critical.map(a => {
+        const cat = catInfo(a.item.category);
+        let desc = '';
+        if (a.type === 'expired')  desc = `Vencido hace ${Math.abs(a.days)} día${Math.abs(a.days) !== 1 ? 's' : ''}`;
+        if (a.type === 'expiring') desc = a.days === 0 ? 'Vence hoy' : `Vence en ${a.days} día${a.days !== 1 ? 's' : ''}`;
+        if (a.type === 'low')      desc = `Quedan ${a.item.quantity} ${a.item.unit} — mínimo: ${a.item.minQuantity}`;
+        return `
+          <div class="alert-card alert-card--${a.type}">
+            <span class="alert-emoji">${cat.emoji}</span>
+            <div class="alert-info">
+              <span class="alert-name">${escHtml(a.item.name)}</span>
+              <span class="alert-desc">${desc}</span>
+            </div>
+          </div>`;
+      }).join('');
+
+  const cookableHtml = cookable.length === 0
+    ? `<p class="resumen-empty">No tenés recetas creadas todavía.</p>`
+    : cookable.map(({ recipe, plates }) => `
+        <div class="plates-card ${plates > 0 ? 'plates-card--yes' : 'plates-card--no'}">
+          <div class="plates-card-name">${escHtml(recipe.name)}</div>
+          <div class="plates-card-count">
+            ${plates > 0 ? `🍽️ ${plates} plato${plates !== 1 ? 's' : ''}` : '— No alcanza el stock'}
+          </div>
+        </div>`).join('');
+
+  document.getElementById('resumen-content').innerHTML = `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-number">${state.items.length}</div>
+        <div class="stat-label">Productos</div>
+      </div>
+      <div class="stat-card stat-card--purple">
+        <div class="stat-number">${critical.length}</div>
+        <div class="stat-label">Stock crítico</div>
+      </div>
+      <div class="stat-card stat-card--warning">
+        <div class="stat-number">${cookable.filter(c => c.plates > 0).length}</div>
+        <div class="stat-label">Recetas listas</div>
+      </div>
+    </div>
+
+    <h3 class="resumen-section-title">⚠️ Stock crítico</h3>
+    <div class="resumen-section">${criticalHtml}</div>
+
+    <h3 class="resumen-section-title">🍽️ ¿Qué puedo cocinar?</h3>
+    <div class="resumen-section">${cookableHtml}</div>
+  `;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -549,10 +631,12 @@ async function deleteItem(id) {
 
 function openRecipeModal(recipe = null) {
   state.editingRecipe = recipe;
-  const title     = document.getElementById('recipe-modal-title');
-  const nameInput = document.getElementById('recipe-field-name');
-  const notesEl   = document.getElementById('recipe-field-notes');
-  const container = document.getElementById('ingredients-container');
+  const title       = document.getElementById('recipe-modal-title');
+  const nameInput   = document.getElementById('recipe-field-name');
+  const notesEl     = document.getElementById('recipe-field-notes');
+  const stepsEl     = document.getElementById('recipe-field-steps');
+  const servingsEl  = document.getElementById('recipe-field-servings');
+  const container   = document.getElementById('ingredients-container');
 
   container.innerHTML = '';
 
@@ -560,11 +644,15 @@ function openRecipeModal(recipe = null) {
     title.textContent   = 'Editar receta';
     nameInput.value     = recipe.name;
     notesEl.value       = recipe.notes || '';
+    stepsEl.value       = recipe.steps || '';
+    servingsEl.value    = recipe.servings || 1;
     recipe.ingredients.forEach(ing => addIngredientRow(container, ing));
   } else {
     title.textContent = 'Nueva receta';
     nameInput.value   = '';
     notesEl.value     = '';
+    stepsEl.value     = '';
+    servingsEl.value  = 1;
     addIngredientRow(container);
   }
 
@@ -626,6 +714,8 @@ async function handleRecipeFormSubmit(e) {
     name,
     ingredients,
     notes: document.getElementById('recipe-field-notes').value.trim(),
+    steps: document.getElementById('recipe-field-steps').value.trim(),
+    servings: parseInt(document.getElementById('recipe-field-servings').value, 10) || 1,
   };
 
   const submitBtn = e.target.querySelector('button[type="submit"]');

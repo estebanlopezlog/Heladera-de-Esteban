@@ -761,6 +761,68 @@ input:focus, select:focus {
   color: var(--primary);
 }
 
+/* ── Recipe check — steps ── */
+.check-recipe-steps { margin-top: 6px; }
+.check-recipe-steps h3 {
+  font-size: .9375rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.check-recipe-steps p {
+  font-size: .875rem;
+  color: var(--gray-700);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+/* ── Resumen ── */
+.resumen-section-title {
+  font-size: .9375rem;
+  font-weight: 700;
+  margin: 22px 0 10px;
+}
+
+.resumen-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.resumen-empty {
+  font-size: .875rem;
+  color: var(--gray-500);
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.plates-card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-left: 3px solid var(--gray-200);
+}
+
+.plates-card--yes { border-left-color: var(--success); }
+.plates-card--no  { border-left-color: var(--danger); }
+
+.plates-card-name {
+  font-weight: 600;
+  font-size: .9375rem;
+}
+
+.plates-card-count {
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  white-space: nowrap;
+}
+
 /* ── Responsive tweaks for larger screens ── */
 @media (min-width: 600px) {
   body { box-shadow: 0 0 0 1px var(--gray-200); }

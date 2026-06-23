@@ -24,6 +24,7 @@
       <button class="tab-btn active" data-tab="inventory">📋 Inventario</button>
       <button class="tab-btn" data-tab="alerts">🔔 Alertas</button>
       <button class="tab-btn" data-tab="recipes">📖 Recetas</button>
+      <button class="tab-btn" data-tab="resumen">📊 Resumen</button>
     </nav>
 
     <!-- ── Inventario ── -->
@@ -69,6 +70,11 @@
         <div id="recipe-check-content"></div>
       </div>
 
+    </div>
+
+    <!-- ── Resumen ── -->
+    <div id="tab-resumen" class="tab-content" style="display:none">
+      <div id="resumen-content"></div>
     </div>
 
   </div><!-- /#app -->
@@ -162,6 +168,19 @@
           <button type="button" id="btn-add-ingredient" class="btn-add-ingredient">
             + Agregar ingrediente
           </button>
+        </div>
+        <div class="form-group">
+          <label for="recipe-field-servings">
+            Rinde (cantidad de platos)
+            <span class="label-hint">con las cantidades de ingredientes indicadas arriba</span>
+          </label>
+          <input type="number" id="recipe-field-servings" name="servings"
+            min="1" step="1" placeholder="1">
+        </div>
+        <div class="form-group">
+          <label for="recipe-field-steps">Pasos (opcional)</label>
+          <textarea id="recipe-field-steps" name="steps" rows="4"
+            placeholder="1. Pelar las papas...&#10;2. Batir los huevos..."></textarea>
         </div>
         <div class="form-group">
           <label for="recipe-field-notes">Notas (opcional)</label>
