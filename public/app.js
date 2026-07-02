@@ -1182,8 +1182,16 @@ async function deleteItem(id) {
 //  Recipe modal
 // ════════════════════════════════════════════════════════════
 
+/** Llena el datalist de sugerencias con los nombres únicos del inventario. */
+function refreshIngredientSuggestions() {
+  const names = [...new Set(state.items.map(i => i.name))].sort((a, b) => a.localeCompare(b, 'es'));
+  document.getElementById('inventory-names').innerHTML =
+    names.map(n => `<option value="${escHtml(n)}"></option>`).join('');
+}
+
 function openRecipeModal(recipe = null) {
   state.editingRecipe = recipe;
+  refreshIngredientSuggestions();
   const title       = document.getElementById('recipe-modal-title');
   const nameInput   = document.getElementById('recipe-field-name');
   const notesEl     = document.getElementById('recipe-field-notes');
@@ -1222,7 +1230,7 @@ function addIngredientRow(container, ingredient = null) {
   const row = document.createElement('div');
   row.className = 'ingredient-row';
   row.innerHTML = `
-    <input type="text"   class="ing-name" placeholder="Ingrediente"
+    <input type="text"   class="ing-name" placeholder="Ingrediente" list="inventory-names"
       value="${ingredient ? escHtml(ingredient.name) : ''}" autocomplete="off">
     <input type="number" class="ing-qty"  placeholder="Cant."
       min="0" step="any" value="${ingredient && ingredient.quantity != null ? ingredient.quantity : ''}">
@@ -1231,6 +1239,14 @@ function addIngredientRow(container, ingredient = null) {
 
   row.querySelector('.btn-remove-ing').addEventListener('click', () => {
     row.remove();
+  });
+
+  // Si el nombre coincide con un producto del inventario, copiar su unidad.
+  row.querySelector('.ing-name').addEventListener('change', e => {
+    const match = state.items.find(i => i.name.toLowerCase() === e.target.value.trim().toLowerCase());
+    if (match && UNITS.includes(match.unit)) {
+      row.querySelector('.ing-unit').value = match.unit;
+    }
   });
 
   container.appendChild(row);
