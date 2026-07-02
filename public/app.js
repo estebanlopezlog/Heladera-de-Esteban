@@ -366,13 +366,13 @@ function itemCardHtml(item) {
   if (item.expiryDate) {
     const d = daysUntil(item.expiryDate);
     if (status === 'expired') {
-      expiryBadge = `<span class="badge badge-expired">Vencido hace ${Math.abs(d)} día${Math.abs(d) !== 1 ? 's' : ''}</span>`;
+      expiryBadge = `<span class="badge badge-expired">Vencido hace ${Math.abs(d)} día${Math.abs(d) !== 1 ? 's' : ''} · ${fmtDate(item.expiryDate)}</span>`;
     } else if (status === 'expiring') {
       expiryBadge = d === 0
-        ? `<span class="badge badge-expiring">Vence hoy</span>`
-        : `<span class="badge badge-expiring">Vence en ${d} día${d !== 1 ? 's' : ''}</span>`;
+        ? `<span class="badge badge-expiring">Vence hoy · ${fmtDate(item.expiryDate)}</span>`
+        : `<span class="badge badge-expiring">Vence en ${d} día${d !== 1 ? 's' : ''} · ${fmtDate(item.expiryDate)}</span>`;
     } else {
-      expiryBadge = `<span class="badge badge-ok">Vence ${fmtDate(item.expiryDate)}</span>`;
+      expiryBadge = `<span class="badge badge-ok">Vence ${fmtDate(item.expiryDate)} · faltan ${d} días</span>`;
     }
   }
   const outBadge = out ? `<span class="badge badge-out">Sin stock</span>` : '';
