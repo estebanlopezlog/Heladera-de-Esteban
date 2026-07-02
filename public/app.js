@@ -11,6 +11,7 @@ const CATEGORIES = [
   { id: 'frutas',      label: 'Frutas',       emoji: '🍎' },
   { id: 'bebidas',     label: 'Bebidas',      emoji: '🧃' },
   { id: 'condimentos', label: 'Condimentos',  emoji: '🧂' },
+  { id: 'especias',    label: 'Especias',     emoji: '🌿' },
   { id: 'fiambres',    label: 'Fiambres',     emoji: '🍖' },
   { id: 'huevos',      label: 'Huevos',       emoji: '🥚' },
   { id: 'postres',     label: 'Postres',      emoji: '🍮' },
