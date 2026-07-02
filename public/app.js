@@ -54,9 +54,26 @@ const api = {
   deleteRecipe:  (id)       => apiRequest(`/recipes/${id}`, { method: 'DELETE' }),
 };
 
+// ════════════════════════════════════════════════════════════
+//  Toasts (notificaciones no intrusivas)
+// ════════════════════════════════════════════════════════════
+
+function toast(message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = `toast toast--${type}`;
+  el.textContent = message;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('toast--out');
+    setTimeout(() => el.remove(), 350);
+  }, 2800);
+}
+
 function reportError(err) {
   console.error(err);
-  alert(`Hubo un problema: ${err.message}`);
+  toast(`⚠️ ${err.message}`, 'error');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -83,6 +100,21 @@ function fmtDate(dateStr) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  Number helpers
+// ════════════════════════════════════════════════════════════
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+/** Paso de ajuste rápido según la unidad del producto. */
+function unitStep(unit) {
+  if (unit === 'kg' || unit === 'litros') return 0.25;
+  if (unit === 'g'  || unit === 'ml')     return 100;
+  return 1;
+}
+
+// ════════════════════════════════════════════════════════════
 //  Inventory business logic
 // ════════════════════════════════════════════════════════════
 
@@ -94,8 +126,12 @@ function getItemStatus(item) {
   return 'ok';
 }
 
+function isOut(item) {
+  return item.quantity <= 0;
+}
+
 function isLow(item) {
-  return item.minQuantity > 0 && item.quantity <= item.minQuantity;
+  return !isOut(item) && item.minQuantity > 0 && item.quantity <= item.minQuantity;
 }
 
 function getAlerts(items) {
@@ -104,7 +140,8 @@ function getAlerts(items) {
     const status = getItemStatus(item);
     if (status === 'expired')  alerts.push({ type: 'expired',  item, days: daysUntil(item.expiryDate) });
     if (status === 'expiring') alerts.push({ type: 'expiring', item, days: daysUntil(item.expiryDate) });
-    if (isLow(item))           alerts.push({ type: 'low',      item });
+    if (isOut(item))           alerts.push({ type: 'low',      item, out: true });
+    else if (isLow(item))      alerts.push({ type: 'low',      item, out: false });
   });
   return alerts;
 }
@@ -125,15 +162,16 @@ function checkRecipeAgainstStock(recipe, inventoryItems) {
       return a.includes(b) || b.includes(a);
     });
 
-    if (!found)               return { ...needed, status: 'missing',      inventoryItem: null };
-    if (!needed.quantity)     return { ...needed, status: 'available',    inventoryItem: found };
+    if (!found)                 return { ...needed, status: 'missing',      inventoryItem: null };
+    if (found.quantity <= 0)    return { ...needed, status: 'missing',      inventoryItem: found };
+    if (!needed.quantity)       return { ...needed, status: 'available',    inventoryItem: found };
     if (found.quantity >= needed.quantity)
-                              return { ...needed, status: 'available',    inventoryItem: found };
-    return                           { ...needed, status: 'insufficient', inventoryItem: found };
+                                return { ...needed, status: 'available',    inventoryItem: found };
+    return                             { ...needed, status: 'insufficient', inventoryItem: found };
   });
 }
 
-/** How many platos se pueden cocinar de esta receta con el stock disponible. */
+/** Cuántos platos se pueden cocinar de esta receta con el stock disponible. */
 function computeMaxPlates(recipe, inventoryItems) {
   const results = checkRecipeAgainstStock(recipe, inventoryItems);
   if (results.some(r => r.status === 'missing')) return 0;
@@ -155,6 +193,7 @@ const state = {
   items:          [],
   activeTab:      'inventory',
   filterCategory: 'all',
+  searchQuery:    '',
   editingItem:    null,
   // recipe book
   recipes:           [],
@@ -183,6 +222,20 @@ function unitOptions(selected) {
   return UNITS.map(u =>
     `<option value="${u}"${u === selected ? ' selected' : ''}>${u}</option>`
   ).join('');
+}
+
+/** Payload completo de un item para PUT (preserva addedDate). */
+function itemPayload(item, overrides = {}) {
+  return {
+    name:        item.name,
+    quantity:    item.quantity,
+    unit:        item.unit,
+    category:    item.category,
+    expiryDate:  item.expiryDate,
+    minQuantity: item.minQuantity,
+    addedDate:   item.addedDate,
+    ...overrides,
+  };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -245,9 +298,12 @@ function renderCategoryFilters() {
 }
 
 function renderItemsList() {
-  const filtered = state.filterCategory === 'all'
+  let filtered = state.filterCategory === 'all'
     ? state.items
     : state.items.filter(i => i.category === state.filterCategory);
+
+  const q = state.searchQuery.trim().toLowerCase();
+  if (q) filtered = filtered.filter(i => i.name.toLowerCase().includes(q));
 
   const ORDER = { expired: 0, expiring: 1, ok: 2 };
   const sorted = [...filtered].sort((a, b) => {
@@ -257,25 +313,36 @@ function renderItemsList() {
 
   const list = document.getElementById('items-list');
   if (sorted.length === 0) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🧊</div>
-        <p>No hay nada en la heladera todavía</p>
-        <p class="empty-hint">Agregá tu primer producto con el botón +</p>
-      </div>`;
+    list.innerHTML = q
+      ? `<div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <p>No encontré nada con "${escHtml(state.searchQuery)}"</p>
+          <p class="empty-hint">Probá con otro nombre</p>
+        </div>`
+      : `<div class="empty-state">
+          <div class="empty-icon">🧊</div>
+          <p>No hay nada en la heladera todavía</p>
+          <p class="empty-hint">Agregá tu primer producto con el botón +</p>
+        </div>`;
     return;
   }
   list.innerHTML = sorted.map(itemCardHtml).join('');
 }
 
+function fmtQty(item) {
+  return `${item.quantity} ${item.unit}`;
+}
+
 function itemCardHtml(item) {
   const cat    = catInfo(item.category);
   const status = getItemStatus(item);
+  const out    = isOut(item);
   const low    = isLow(item);
 
   let cardCls = 'item-card';
   if (status === 'expired')       cardCls += ' item-card--expired';
   else if (status === 'expiring') cardCls += ' item-card--expiring';
+  else if (out)                   cardCls += ' item-card--out';
   else if (low)                   cardCls += ' item-card--low';
 
   let expiryBadge = '';
@@ -291,24 +358,62 @@ function itemCardHtml(item) {
       expiryBadge = `<span class="badge badge-ok">Vence ${fmtDate(item.expiryDate)}</span>`;
     }
   }
+  const outBadge = out ? `<span class="badge badge-out">Sin stock</span>` : '';
   const lowBadge = low ? `<span class="badge badge-low">Stock bajo</span>` : '';
 
   return `
     <div class="${cardCls}">
-      <div class="item-emoji">${cat.emoji}</div>
+      <div class="item-emoji"><span>${cat.emoji}</span></div>
       <div class="item-info">
         <div class="item-name">${escHtml(item.name)}</div>
         <div class="item-meta">
-          <span class="item-quantity">${item.quantity} ${item.unit}</span>
           <span class="item-category">${cat.label}</span>
         </div>
-        <div class="item-badges">${expiryBadge}${lowBadge}</div>
+        <div class="item-badges">${expiryBadge}${outBadge}${lowBadge}</div>
       </div>
-      <div class="item-actions">
-        <button class="btn-icon btn-edit"   data-id="${item.id}" title="Editar">✏️</button>
-        <button class="btn-icon btn-delete" data-id="${item.id}" title="Eliminar">🗑️</button>
+      <div class="item-side">
+        <div class="qty-stepper">
+          <button class="qty-btn qty-minus" data-id="${item.id}" title="Descontar ${unitStep(item.unit)} ${item.unit}" ${out ? 'disabled' : ''}>−</button>
+          <span class="qty-value">${fmtQty(item)}</span>
+          <button class="qty-btn qty-plus" data-id="${item.id}" title="Sumar ${unitStep(item.unit)} ${item.unit}">+</button>
+        </div>
+        <div class="item-actions">
+          <button class="btn-icon btn-edit"   data-id="${item.id}" title="Editar">✏️</button>
+          <button class="btn-icon btn-delete" data-id="${item.id}" title="Eliminar">🗑️</button>
+        </div>
       </div>
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Quantity adjustment (descuento / suma rápida de stock)
+// ════════════════════════════════════════════════════════════
+
+const pendingSaves = new Map(); // itemId -> timeout
+
+function adjustQuantity(id, dir) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+
+  const newQty = Math.max(0, round2(item.quantity + dir * unitStep(item.unit)));
+  if (newQty === item.quantity) return;
+  item.quantity = newQty;
+  renderApp();
+
+  // Debounce: espera a que el usuario termine de tocar +/− y guarda una sola vez.
+  clearTimeout(pendingSaves.get(id));
+  pendingSaves.set(id, setTimeout(async () => {
+    pendingSaves.delete(id);
+    try {
+      await api.updateItem(id, itemPayload(item));
+    } catch (err) {
+      reportError(err);
+      try {
+        state.items = await api.getItems();
+        renderApp();
+      } catch { /* la próxima acción reintenta */ }
+    }
+  }, 600));
 }
 
 // ════════════════════════════════════════════════════════════
@@ -352,7 +457,11 @@ function alertCardHtml(alert) {
   let desc = '';
   if (alert.type === 'expired')  desc = `Venció hace ${Math.abs(alert.days)} día${Math.abs(alert.days) !== 1 ? 's' : ''}`;
   if (alert.type === 'expiring') desc = alert.days === 0 ? 'Vence hoy' : `Vence en ${alert.days} día${alert.days !== 1 ? 's' : ''}`;
-  if (alert.type === 'low')      desc = `Quedan ${alert.item.quantity} ${alert.item.unit} — mínimo: ${alert.item.minQuantity}`;
+  if (alert.type === 'low') {
+    desc = alert.out
+      ? 'Sin stock — hay que reponer'
+      : `Quedan ${alert.item.quantity} ${alert.item.unit} — mínimo: ${alert.item.minQuantity}`;
+  }
 
   return `
     <div class="alert-card alert-card--${alert.type}">
@@ -394,7 +503,12 @@ function renderRecipeList() {
       </div>`;
     return;
   }
-  el.innerHTML = state.recipes.map(recipeCardHtml).join('');
+  const ORDER = { green: 0, yellow: 1, red: 2 };
+  const sorted = [...state.recipes].sort((a, b) => {
+    const diff = ORDER[getRecipeStockStatus(a)] - ORDER[getRecipeStockStatus(b)];
+    return diff !== 0 ? diff : a.name.localeCompare(b.name, 'es');
+  });
+  el.innerHTML = sorted.map(recipeCardHtml).join('');
 }
 
 function getRecipeStockStatus(recipe) {
@@ -416,19 +530,21 @@ const RECIPE_STATUS_LABEL = {
 function recipeCardHtml(recipe) {
   const stockStatus = getRecipeStockStatus(recipe);
   const count = recipe.ingredients.length;
+  const plates = stockStatus === 'green' ? computeMaxPlates(recipe, nonExpiredItems()) : 0;
+  const platesInfo = plates > 0 ? ` · rinde ${plates} plato${plates !== 1 ? 's' : ''}` : '';
   const notes = recipe.notes ? `<div class="recipe-book-notes">${escHtml(recipe.notes)}</div>` : '';
   return `
     <div class="recipe-book-card recipe-book-card--${stockStatus}">
-      <div class="recipe-book-icon">🍽️</div>
+      <div class="recipe-book-icon"><span>🍽️</span></div>
       <div class="recipe-book-info">
         <div class="recipe-book-name">${escHtml(recipe.name)}</div>
-        <div class="recipe-book-meta">${count} ingrediente${count !== 1 ? 's' : ''}</div>
+        <div class="recipe-book-meta">${count} ingrediente${count !== 1 ? 's' : ''}${platesInfo}</div>
         <span class="recipe-stock-pill recipe-stock-pill--${stockStatus}">${RECIPE_STATUS_LABEL[stockStatus]}</span>
         ${notes}
       </div>
       <div class="recipe-book-actions">
-        <button class="btn-verify" data-id="${recipe.id}">🔍 Verificar</button>
-        <div style="display:flex;gap:2px">
+        <button class="btn-verify" data-id="${recipe.id}">🔍 Ver</button>
+        <div class="recipe-book-icons">
           <button class="btn-icon btn-edit-recipe"   data-id="${recipe.id}" title="Editar">✏️</button>
           <button class="btn-icon btn-delete-recipe" data-id="${recipe.id}" title="Eliminar">🗑️</button>
         </div>
@@ -450,7 +566,7 @@ function renderRecipeCheckView() {
   const notesHtml = recipe.notes
     ? `<p class="check-recipe-notes">${escHtml(recipe.notes)}</p>` : '';
   const stepsHtml = recipe.steps
-    ? `<div class="check-recipe-steps"><h3>Pasos</h3><p>${escHtml(recipe.steps)}</p></div>` : '';
+    ? `<div class="check-recipe-steps"><h3>👨‍🍳 Pasos</h3><p>${escHtml(recipe.steps)}</p></div>` : '';
 
   const rows = results.map(r => {
     const icon   = r.status === 'available' ? '✅' : r.status === 'missing' ? '❌' : '⚠️';
@@ -471,6 +587,10 @@ function renderRecipeCheckView() {
       </div>`;
   }).join('');
 
+  const cookBtn = canCook
+    ? `<button class="btn-cook" data-id="${recipe.id}">🍳 Cocinar y descontar stock</button>`
+    : '';
+
   el.innerHTML = `
     <h2 class="check-recipe-title">${escHtml(recipe.name)}</h2>
     ${notesHtml}
@@ -480,9 +600,58 @@ function renderRecipeCheckView() {
           ? `✅ ¡Podés prepararlo! Te alcanza para ${plates} plato${plates !== 1 ? 's' : ''}`
           : `❌ Faltan ${missing.length + insuf.length} ingrediente${missing.length + insuf.length !== 1 ? 's'  : ''}`}
       </div>
+      ${cookBtn}
       <div class="recipe-table">${rows}</div>
       ${stepsHtml}
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Cocinar receta → descuenta ingredientes del stock
+// ════════════════════════════════════════════════════════════
+
+async function cookRecipe(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+
+  const results = checkRecipeAgainstStock(recipe, nonExpiredItems());
+  if (results.some(r => r.status !== 'available')) {
+    toast('Te faltan ingredientes para esta receta', 'error');
+    return;
+  }
+
+  const summary = results
+    .filter(r => r.quantity)
+    .map(r => `• ${r.inventoryItem.name}: −${r.quantity} ${r.unit || r.inventoryItem.unit}`)
+    .join('\n');
+  const msg = summary
+    ? `¿Cocinás "${recipe.name}"?\n\nSe descuenta del stock:\n${summary}`
+    : `¿Cocinás "${recipe.name}"?\n\n(Ningún ingrediente tiene cantidad definida, no se descuenta stock.)`;
+  if (!confirm(msg)) return;
+
+  // Suma descuentos por producto (dos ingredientes pueden matchear el mismo item).
+  const deductions = new Map();
+  results.forEach(r => {
+    if (r.inventoryItem && r.quantity) {
+      deductions.set(r.inventoryItem.id, (deductions.get(r.inventoryItem.id) || 0) + r.quantity);
+    }
+  });
+
+  const btn = document.querySelector('.btn-cook');
+  if (btn) { btn.disabled = true; btn.textContent = 'Descontando...'; }
+
+  try {
+    await Promise.all([...deductions].map(([itemId, qty]) => {
+      const item = state.items.find(i => i.id === itemId);
+      return api.updateItem(itemId, itemPayload(item, { quantity: Math.max(0, round2(item.quantity - qty)) }));
+    }));
+    state.items = await api.getItems();
+    toast(`🍳 ¡A cocinar ${recipe.name}! Stock descontado`);
+    renderApp();
+  } catch (err) {
+    reportError(err);
+    if (btn) { btn.disabled = false; btn.textContent = '🍳 Cocinar y descontar stock'; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -504,7 +673,7 @@ function renderResumen(alerts) {
         let desc = '';
         if (a.type === 'expired')  desc = `Vencido hace ${Math.abs(a.days)} día${Math.abs(a.days) !== 1 ? 's' : ''}`;
         if (a.type === 'expiring') desc = a.days === 0 ? 'Vence hoy' : `Vence en ${a.days} día${a.days !== 1 ? 's' : ''}`;
-        if (a.type === 'low')      desc = `Quedan ${a.item.quantity} ${a.item.unit} — mínimo: ${a.item.minQuantity}`;
+        if (a.type === 'low')      desc = a.out ? 'Sin stock — hay que reponer' : `Quedan ${a.item.quantity} ${a.item.unit} — mínimo: ${a.item.minQuantity}`;
         return `
           <div class="alert-card alert-card--${a.type}">
             <span class="alert-emoji">${cat.emoji}</span>
@@ -518,10 +687,10 @@ function renderResumen(alerts) {
   const cookableHtml = cookable.length === 0
     ? `<p class="resumen-empty">No tenés recetas creadas todavía.</p>`
     : cookable.map(({ recipe, plates }) => `
-        <div class="plates-card ${plates > 0 ? 'plates-card--yes' : 'plates-card--no'}">
+        <div class="plates-card ${plates > 0 ? 'plates-card--yes' : 'plates-card--no'}" data-id="${recipe.id}">
           <div class="plates-card-name">${escHtml(recipe.name)}</div>
           <div class="plates-card-count">
-            ${plates > 0 ? `🍽️ ${plates} plato${plates !== 1 ? 's' : ''}` : '— No alcanza el stock'}
+            ${plates > 0 ? `🍽️ ${plates} plato${plates !== 1 ? 's' : ''}` : 'Sin stock suficiente'}
           </div>
         </div>`).join('');
 
@@ -600,9 +769,11 @@ async function handleFormSubmit(e) {
 
   try {
     if (state.editingItem) {
-      await api.updateItem(state.editingItem.id, itemData);
+      await api.updateItem(state.editingItem.id, { ...itemData, addedDate: state.editingItem.addedDate });
+      toast(`✏️ ${name} actualizado`);
     } else {
       await api.createItem(itemData);
+      toast(`✅ ${name} agregado a la heladera`);
     }
     state.items = await api.getItems();
     closeModal();
@@ -620,6 +791,7 @@ async function deleteItem(id) {
   try {
     await api.deleteItem(id);
     state.items = await api.getItems();
+    toast(`🗑️ ${item.name} eliminado`);
     renderApp();
   } catch (err) {
     reportError(err);
@@ -707,7 +879,7 @@ async function handleRecipeFormSubmit(e) {
 
   const ingredients = getIngredientsFromForm();
   if (ingredients.length === 0) {
-    alert('Agregá al menos un ingrediente.');
+    toast('Agregá al menos un ingrediente', 'error');
     return;
   }
 
@@ -724,9 +896,11 @@ async function handleRecipeFormSubmit(e) {
 
   try {
     if (state.editingRecipe) {
-      await api.updateRecipe(state.editingRecipe.id, recipeData);
+      await api.updateRecipe(state.editingRecipe.id, { ...recipeData, createdDate: state.editingRecipe.createdDate });
+      toast(`✏️ Receta "${name}" actualizada`);
     } else {
       await api.createRecipe(recipeData);
+      toast(`📖 Receta "${name}" guardada`);
     }
     state.recipes = await api.getRecipes();
     closeRecipeModal();
@@ -744,6 +918,7 @@ async function deleteRecipe(id) {
   try {
     await api.deleteRecipe(id);
     state.recipes = await api.getRecipes();
+    toast(`🗑️ Receta "${recipe.name}" eliminada`);
     renderApp();
   } catch (err) {
     reportError(err);
@@ -765,6 +940,12 @@ function setupEvents() {
     });
   });
 
+  // ── Search ──
+  document.getElementById('search-input').addEventListener('input', e => {
+    state.searchQuery = e.target.value;
+    renderItemsList();
+  });
+
   // ── Inventory modal ──
   document.getElementById('btn-add').addEventListener('click', () => openModal());
   document.getElementById('modal-close').addEventListener('click', closeModal);
@@ -774,8 +955,12 @@ function setupEvents() {
 
   // ── Inventory item actions (delegation) ──
   document.getElementById('items-list').addEventListener('click', e => {
-    const edit = e.target.closest('.btn-edit');
-    const del  = e.target.closest('.btn-delete');
+    const minus = e.target.closest('.qty-minus');
+    const plus  = e.target.closest('.qty-plus');
+    const edit  = e.target.closest('.btn-edit');
+    const del   = e.target.closest('.btn-delete');
+    if (minus) adjustQuantity(minus.dataset.id, -1);
+    if (plus)  adjustQuantity(plus.dataset.id, +1);
     if (edit) { const item = state.items.find(i => i.id === edit.dataset.id); if (item) openModal(item); }
     if (del)  deleteItem(del.dataset.id);
   });
@@ -812,6 +997,23 @@ function setupEvents() {
       if (recipe) openRecipeModal(recipe);
     }
     if (del) deleteRecipe(del.dataset.id);
+  });
+
+  // ── Cocinar (en la vista de verificación) ──
+  document.getElementById('recipe-check-content').addEventListener('click', e => {
+    const cook = e.target.closest('.btn-cook');
+    if (cook) cookRecipe(cook.dataset.id);
+  });
+
+  // ── Resumen: tocar una receta te lleva a verificarla ──
+  document.getElementById('resumen-content').addEventListener('click', e => {
+    const card = e.target.closest('.plates-card');
+    if (card) {
+      state.activeTab = 'recipes';
+      state.recipesView = 'check';
+      state.checkingRecipeId = card.dataset.id;
+      renderApp();
+    }
   });
 
   // ── Back button in check view ──

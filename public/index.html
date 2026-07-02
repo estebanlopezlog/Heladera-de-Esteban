@@ -3,8 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0891b2">
+  <meta name="description" content="Control de inventario y recetas de tu heladera">
   <title>🧊 Mi Heladera</title>
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <div id="app-loading" class="app-loading">
@@ -42,6 +49,10 @@
           <div id="stat-low" class="stat-number">0</div>
           <div class="stat-label">Stock bajo</div>
         </div>
+      </div>
+
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Buscar producto..." autocomplete="off">
       </div>
 
       <div id="category-filters" class="category-filters"></div>
@@ -198,6 +209,8 @@
 
   </div><!-- /#app-main -->
 
-  <script src="app.js?v=4"></script>
+  <div id="toast-container"></div>
+
+  <script src="app.js?v=5"></script>
 </body>
 </html>
