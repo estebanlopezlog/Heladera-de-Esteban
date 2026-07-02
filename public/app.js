@@ -154,20 +154,37 @@ function nonExpiredItems() {
 //  Recipe checker
 // ════════════════════════════════════════════════════════════
 
+function matchesIngredient(item, neededName) {
+  const a = item.name.toLowerCase();
+  const b = neededName.toLowerCase();
+  return a.includes(b) || b.includes(a);
+}
+
+/** Ordena lotes por vencimiento: lo que vence antes va primero (FEFO); sin fecha, al final. */
+function sortFEFO(items) {
+  return [...items].sort((x, y) => {
+    if (!x.expiryDate && !y.expiryDate) return 0;
+    if (!x.expiryDate) return 1;
+    if (!y.expiryDate) return -1;
+    return x.expiryDate.localeCompare(y.expiryDate);
+  });
+}
+
 function checkRecipeAgainstStock(recipe, inventoryItems) {
   return recipe.ingredients.map(needed => {
-    const found = inventoryItems.find(item => {
-      const a = item.name.toLowerCase();
-      const b = needed.name.toLowerCase();
-      return a.includes(b) || b.includes(a);
-    });
+    // Todos los lotes con stock que matchean el ingrediente, ordenados FEFO.
+    const lots  = sortFEFO(inventoryItems.filter(i => matchesIngredient(i, needed.name) && i.quantity > 0));
+    const total = round2(lots.reduce((sum, i) => sum + i.quantity, 0));
 
-    if (!found)                 return { ...needed, status: 'missing',      inventoryItem: null };
-    if (found.quantity <= 0)    return { ...needed, status: 'missing',      inventoryItem: found };
-    if (!needed.quantity)       return { ...needed, status: 'available',    inventoryItem: found };
-    if (found.quantity >= needed.quantity)
-                                return { ...needed, status: 'available',    inventoryItem: found };
-    return                             { ...needed, status: 'insufficient', inventoryItem: found };
+    if (lots.length === 0) {
+      const empty = inventoryItems.find(i => matchesIngredient(i, needed.name));
+      return { ...needed, status: 'missing', inventoryItem: empty || null, lots: [], totalAvailable: 0 };
+    }
+
+    const base = { ...needed, inventoryItem: lots[0], lots, totalAvailable: total };
+    if (!needed.quantity)          return { ...base, status: 'available' };
+    if (total >= needed.quantity)  return { ...base, status: 'available' };
+    return                                { ...base, status: 'insufficient' };
   });
 }
 
@@ -179,7 +196,7 @@ function computeMaxPlates(recipe, inventoryItems) {
   const measured = results.filter(r => r.quantity);
   const maxBatches = measured.length === 0
     ? 1
-    : Math.min(...measured.map(r => Math.floor(r.inventoryItem.quantity / r.quantity)));
+    : Math.min(...measured.map(r => Math.floor(r.totalAvailable / r.quantity)));
 
   return Math.max(0, maxBatches) * (recipe.servings || 1);
 }
@@ -571,9 +588,15 @@ function renderRecipeCheckView() {
   const rows = results.map(r => {
     const icon   = r.status === 'available' ? '✅' : r.status === 'missing' ? '❌' : '⚠️';
     const needed = r.quantity ? `${r.quantity} ${r.unit || ''}`.trim() : 'alguna cantidad';
-    const have   = r.inventoryItem
-      ? `Tenés: ${r.inventoryItem.quantity} ${r.inventoryItem.unit}`
-      : 'No está en la heladera';
+    let have;
+    if (r.totalAvailable > 0) {
+      const lotInfo = r.lots.length > 1 ? ` en ${r.lots.length} lotes` : '';
+      have = `Tenés: ${r.totalAvailable} ${r.lots[0].unit}${lotInfo}`;
+    } else if (r.inventoryItem) {
+      have = `Tenés: 0 ${r.inventoryItem.unit}`;
+    } else {
+      have = 'No está en la heladera';
+    }
     return `
       <div class="recipe-row recipe-row--${r.status}">
         <span class="recipe-status-icon">${icon}</span>
@@ -620,22 +643,34 @@ async function cookRecipe(id) {
     return;
   }
 
-  const summary = results
-    .filter(r => r.quantity)
-    .map(r => `• ${r.inventoryItem.name}: −${r.quantity} ${r.unit || r.inventoryItem.unit}`)
-    .join('\n');
-  const msg = summary
-    ? `¿Cocinás "${recipe.name}"?\n\nSe descuenta del stock:\n${summary}`
-    : `¿Cocinás "${recipe.name}"?\n\n(Ningún ingrediente tiene cantidad definida, no se descuenta stock.)`;
-  if (!confirm(msg)) return;
-
-  // Suma descuentos por producto (dos ingredientes pueden matchear el mismo item).
+  // Reparto FEFO: cada ingrediente consume primero el lote que vence antes,
+  // y sigue con el siguiente si no alcanza. `avail` evita descontar dos veces
+  // el mismo lote cuando dos ingredientes matchean el mismo producto.
+  const avail = new Map();
   const deductions = new Map();
   results.forEach(r => {
-    if (r.inventoryItem && r.quantity) {
-      deductions.set(r.inventoryItem.id, (deductions.get(r.inventoryItem.id) || 0) + r.quantity);
+    if (!r.quantity) return;
+    let remaining = r.quantity;
+    for (const lot of r.lots) {
+      if (remaining <= 0) break;
+      if (!avail.has(lot.id)) avail.set(lot.id, lot.quantity);
+      const take = Math.min(avail.get(lot.id), remaining);
+      if (take <= 0) continue;
+      avail.set(lot.id, round2(avail.get(lot.id) - take));
+      deductions.set(lot.id, round2((deductions.get(lot.id) || 0) + take));
+      remaining = round2(remaining - take);
     }
   });
+
+  const summary = [...deductions].map(([itemId, qty]) => {
+    const item = state.items.find(i => i.id === itemId);
+    const vto = item.expiryDate ? ` (vence ${fmtDate(item.expiryDate)})` : '';
+    return `• ${item.name}${vto}: −${qty} ${item.unit}`;
+  }).join('\n');
+  const msg = summary
+    ? `¿Cocinás "${recipe.name}"?\n\nSe descuenta del stock (primero lo que vence antes):\n${summary}`
+    : `¿Cocinás "${recipe.name}"?\n\n(Ningún ingrediente tiene cantidad definida, no se descuenta stock.)`;
+  if (!confirm(msg)) return;
 
   const btn = document.querySelector('.btn-cook');
   if (btn) { btn.disabled = true; btn.textContent = 'Descontando...'; }
