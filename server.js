@@ -11,10 +11,11 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const itemsTable = new SheetTable('Items', [
-  'id', 'name', 'quantity', 'unit', 'category', 'expiryDate', 'minQuantity', 'addedDate',
+  'id', 'name', 'quantity', 'unit', 'category', 'expiryDate', 'minQuantity', 'addedDate', 'location',
 ]);
 const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'steps', 'servings', 'createdDate']);
 const ingredientsTable = new SheetTable('RecipeIngredients', ['recipeId', 'name', 'quantity', 'unit']);
+const movementsTable = new SheetTable('Movements', ['id', 'date', 'type', 'name', 'quantity', 'unit', 'category']);
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -30,6 +31,7 @@ function toItemDTO(row) {
     expiryDate: row.expiryDate || null,
     minQuantity: parseFloat(row.minQuantity) || 0,
     addedDate: row.addedDate,
+    location: row.location || 'heladera',
   };
 }
 
@@ -164,6 +166,48 @@ app.delete('/api/recipes/:id', async (req, res) => {
     await recipesTable.delete(req.params.id);
     await ingredientsTable.deleteWhere('recipeId', req.params.id);
     res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  Movements (historial de consumo/reposición para estadísticas)
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/movements', async (req, res) => {
+  try {
+    const rows = await movementsTable.getAll();
+    res.json(rows.map(m => ({
+      id: m.id,
+      date: m.date,
+      type: m.type,
+      name: m.name,
+      quantity: parseFloat(m.quantity) || 0,
+      unit: m.unit || '',
+      category: m.category || '',
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/movements', async (req, res) => {
+  try {
+    const list = Array.isArray(req.body) ? req.body : [req.body];
+    const rows = list.map(m => ({
+      id: generateId(),
+      date: new Date().toISOString().slice(0, 10),
+      type: m.type,
+      name: m.name,
+      quantity: m.quantity ?? '',
+      unit: m.unit || '',
+      category: m.category || '',
+    }));
+    await movementsTable.appendMany(rows);
+    res.status(201).json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

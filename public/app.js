@@ -20,7 +20,14 @@ const CATEGORIES = [
 
 const UNITS = ['unidades', 'kg', 'g', 'litros', 'ml', 'porciones', 'fetas', 'tazas'];
 
+const LOCATIONS = [
+  { id: 'heladera', label: 'Heladera', emoji: '❄️' },
+  { id: 'freezer',  label: 'Freezer',  emoji: '🧊' },
+  { id: 'alacena',  label: 'Alacena',  emoji: '🗄️' },
+];
+
 const EXPIRY_WARN_DAYS = 3;
+const STATS_DAYS = 30;
 
 // ════════════════════════════════════════════════════════════
 //  API client
@@ -52,7 +59,19 @@ const api = {
   createRecipe:  (recipe)   => apiRequest('/recipes', { method: 'POST', body: JSON.stringify(recipe) }),
   updateRecipe:  (id, recipe) => apiRequest(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(recipe) }),
   deleteRecipe:  (id)       => apiRequest(`/recipes/${id}`, { method: 'DELETE' }),
+
+  getMovements:  ()     => apiRequest('/movements'),
+  logMovements:  (list) => apiRequest('/movements', { method: 'POST', body: JSON.stringify(list) }),
 };
+
+/** Registra movimientos para estadísticas. Nunca corta el flujo principal si falla. */
+function logMovements(entries) {
+  if (!entries.length || state.movementsError) return;
+  const today = new Date().toISOString().slice(0, 10);
+  api.logMovements(entries)
+    .then(() => entries.forEach(e => state.movements.push({ date: today, ...e })))
+    .catch(err => console.warn('No se pudo registrar el movimiento:', err.message));
+}
 
 // ════════════════════════════════════════════════════════════
 //  Toasts (notificaciones no intrusivas)
@@ -210,13 +229,18 @@ const state = {
   items:          [],
   activeTab:      'inventory',
   filterCategory: 'all',
+  filterLocation: 'all',
   searchQuery:    '',
   editingItem:    null,
+  restockMode:    false,
   // recipe book
   recipes:           [],
   recipesView:       'list',   // 'list' | 'check'
   checkingRecipeId:  null,
   editingRecipe:     null,
+  // movimientos (estadísticas)
+  movements:      [],
+  movementsError: false,
   // loading
   loading: true,
 };
@@ -227,6 +251,10 @@ const state = {
 
 function catInfo(id) {
   return CATEGORIES.find(c => c.id === id) || { label: 'Otro', emoji: '📦' };
+}
+
+function locInfo(id) {
+  return LOCATIONS.find(l => l.id === id) || LOCATIONS[0];
 }
 
 function escHtml(str) {
@@ -251,6 +279,7 @@ function itemPayload(item, overrides = {}) {
     expiryDate:  item.expiryDate,
     minQuantity: item.minQuantity,
     addedDate:   item.addedDate,
+    location:    item.location || 'heladera',
     ...overrides,
   };
 }
@@ -278,7 +307,7 @@ function renderApp() {
     btn.classList.toggle('active', btn.dataset.tab === state.activeTab);
   });
 
-  const tabIds = { inventory: 'tab-inventory', alerts: 'tab-alerts', recipes: 'tab-recipes', resumen: 'tab-resumen' };
+  const tabIds = { inventory: 'tab-inventory', alerts: 'tab-alerts', recipes: 'tab-recipes', shopping: 'tab-shopping', resumen: 'tab-resumen' };
   Object.entries(tabIds).forEach(([key, id]) => {
     document.getElementById(id).style.display = state.activeTab === key ? 'block' : 'none';
   });
@@ -286,6 +315,7 @@ function renderApp() {
   if (state.activeTab === 'inventory') renderInventory(alerts);
   if (state.activeTab === 'alerts')    renderAlerts(alerts);
   if (state.activeTab === 'recipes')   renderRecipeBook();
+  if (state.activeTab === 'shopping')  renderShopping();
   if (state.activeTab === 'resumen')   renderResumen(alerts);
 }
 
@@ -305,8 +335,12 @@ function renderInventory(alerts) {
 
 function renderCategoryFilters() {
   const usedCats = [...new Set(state.items.map(i => i.category))];
+  const locChips = LOCATIONS.map(l =>
+    `<button class="filter-chip filter-chip--loc ${state.filterLocation === l.id ? 'active' : ''}" data-loc="${l.id}">${l.emoji} ${l.label}</button>`
+  ).join('');
   document.getElementById('category-filters').innerHTML = [
-    `<button class="filter-chip ${state.filterCategory === 'all' ? 'active' : ''}" data-filter="all">Todo</button>`,
+    `<button class="filter-chip ${state.filterCategory === 'all' && state.filterLocation === 'all' ? 'active' : ''}" data-filter="all">Todo</button>`,
+    locChips,
     ...usedCats.map(id => {
       const c = catInfo(id);
       return `<button class="filter-chip ${state.filterCategory === id ? 'active' : ''}" data-filter="${id}">${c.emoji} ${c.label}</button>`;
@@ -318,6 +352,10 @@ function renderItemsList() {
   let filtered = state.filterCategory === 'all'
     ? state.items
     : state.items.filter(i => i.category === state.filterCategory);
+
+  if (state.filterLocation !== 'all') {
+    filtered = filtered.filter(i => (i.location || 'heladera') === state.filterLocation);
+  }
 
   const q = state.searchQuery.trim().toLowerCase();
   if (q) filtered = filtered.filter(i => i.name.toLowerCase().includes(q));
@@ -384,7 +422,7 @@ function itemCardHtml(item) {
       <div class="item-info">
         <div class="item-name">${escHtml(item.name)}</div>
         <div class="item-meta">
-          <span class="item-category">${cat.label}</span>
+          <span class="item-category">${cat.label} · ${locInfo(item.location).emoji} ${locInfo(item.location).label}</span>
         </div>
         <div class="item-badges">${expiryBadge}${outBadge}${lowBadge}</div>
       </div>
@@ -406,11 +444,14 @@ function itemCardHtml(item) {
 //  Quantity adjustment (descuento / suma rápida de stock)
 // ════════════════════════════════════════════════════════════
 
-const pendingSaves = new Map(); // itemId -> timeout
+const pendingSaves = new Map();     // itemId -> timeout
+const adjustBaselines = new Map();  // itemId -> cantidad antes del primer toque
 
 function adjustQuantity(id, dir) {
   const item = state.items.find(i => i.id === id);
   if (!item) return;
+
+  if (!adjustBaselines.has(id)) adjustBaselines.set(id, item.quantity);
 
   const newQty = Math.max(0, round2(item.quantity + dir * unitStep(item.unit)));
   if (newQty === item.quantity) return;
@@ -421,8 +462,20 @@ function adjustQuantity(id, dir) {
   clearTimeout(pendingSaves.get(id));
   pendingSaves.set(id, setTimeout(async () => {
     pendingSaves.delete(id);
+    const baseline = adjustBaselines.get(id);
+    adjustBaselines.delete(id);
     try {
       await api.updateItem(id, itemPayload(item));
+      const delta = round2(item.quantity - baseline);
+      if (delta !== 0) {
+        logMovements([{
+          type: delta < 0 ? 'descuento' : 'suma',
+          name: item.name,
+          quantity: Math.abs(delta),
+          unit: item.unit,
+          category: item.category,
+        }]);
+      }
     } catch (err) {
       reportError(err);
       try {
@@ -675,11 +728,21 @@ async function cookRecipe(id) {
   const btn = document.querySelector('.btn-cook');
   if (btn) { btn.disabled = true; btn.textContent = 'Descontando...'; }
 
+  // Movimientos para estadísticas (armados antes del refetch, con los datos actuales).
+  const movementEntries = [
+    { type: 'cocina', name: recipe.name, quantity: recipe.servings || 1, unit: 'platos', category: '' },
+    ...[...deductions].map(([itemId, qty]) => {
+      const item = state.items.find(i => i.id === itemId);
+      return { type: 'descuento', name: item.name, quantity: qty, unit: item.unit, category: item.category };
+    }),
+  ];
+
   try {
     await Promise.all([...deductions].map(([itemId, qty]) => {
       const item = state.items.find(i => i.id === itemId);
       return api.updateItem(itemId, itemPayload(item, { quantity: Math.max(0, round2(item.quantity - qty)) }));
     }));
+    logMovements(movementEntries);
     state.items = await api.getItems();
     toast(`🍳 ¡A cocinar ${recipe.name}! Stock descontado`);
     renderApp();
@@ -687,6 +750,65 @@ async function cookRecipe(id) {
     reportError(err);
     if (btn) { btn.disabled = false; btn.textContent = '🍳 Cocinar y descontar stock'; }
   }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Render — Lista de compras
+// ════════════════════════════════════════════════════════════
+
+function getShoppingList() {
+  return state.items
+    .map(item => {
+      if (getItemStatus(item) === 'expired') return { item, reason: 'Vencido — reponer', kind: 'expired' };
+      if (isOut(item))                       return { item, reason: 'Sin stock', kind: 'out' };
+      if (isLow(item))                       return { item, reason: `Quedan ${item.quantity} ${item.unit} (mínimo ${item.minQuantity})`, kind: 'low' };
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.item.name.localeCompare(b.item.name, 'es'));
+}
+
+function shoppingListText() {
+  const lines = getShoppingList().map(({ item, reason }) => `• ${item.name} — ${reason}`);
+  return `🛒 Lista de compras (Mi Heladera):\n${lines.join('\n')}`;
+}
+
+function renderShopping() {
+  const el = document.getElementById('shopping-content');
+  const list = getShoppingList();
+
+  if (list.length === 0) {
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🎉</div>
+        <p>¡No hay nada para comprar!</p>
+        <p class="empty-hint">Acá aparece lo que esté sin stock, bajo de stock o vencido</p>
+      </div>`;
+    return;
+  }
+
+  const cards = list.map(({ item, reason, kind }) => {
+    const cat = catInfo(item.category);
+    return `
+      <div class="shop-card shop-card--${kind}">
+        <span class="alert-emoji">${cat.emoji}</span>
+        <div class="alert-info">
+          <span class="alert-name">${escHtml(item.name)}</span>
+          <span class="alert-desc">${reason}</span>
+        </div>
+        <button class="btn-bought" data-id="${item.id}">✔️ Comprado</button>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="shop-header">
+      <p class="shop-count">${list.length} producto${list.length !== 1 ? 's' : ''} para comprar</p>
+      <div class="shop-actions">
+        <button id="btn-copy-list" class="btn btn-secondary">📋 Copiar</button>
+        <button id="btn-wa-list" class="btn btn-primary">💬 WhatsApp</button>
+      </div>
+    </div>
+    <div class="resumen-section">${cards}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -750,25 +872,98 @@ function renderResumen(alerts) {
 
     <h3 class="resumen-section-title">🍽️ ¿Qué puedo cocinar?</h3>
     <div class="resumen-section">${cookableHtml}</div>
+
+    ${statsHtml()}
   `;
+}
+
+// ════════════════════════════════════════════════════════════
+//  Estadísticas
+// ════════════════════════════════════════════════════════════
+
+function barListHtml(rows) {
+  // rows: [{ label, value, suffix }]
+  const max = Math.max(...rows.map(r => r.value), 1);
+  return rows.map(r => `
+    <div class="bar-row">
+      <span class="bar-label">${r.label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(r.value / max * 100)}%"></div></div>
+      <span class="bar-value">${r.value}${r.suffix || ''}</span>
+    </div>`).join('');
+}
+
+function statsHtml() {
+  // Distribución del stock actual por categoría (siempre disponible)
+  const byCat = new Map();
+  state.items.forEach(i => byCat.set(i.category, (byCat.get(i.category) || 0) + 1));
+  const catRows = [...byCat]
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, n]) => ({ label: `${catInfo(cat).emoji} ${catInfo(cat).label}`, value: n }));
+
+  const stockSection = catRows.length === 0 ? '' : `
+    <h4 class="stats-subtitle">Stock por categoría</h4>
+    <div class="bar-list">${barListHtml(catRows)}</div>`;
+
+  // Movimientos de los últimos 30 días
+  let movementsSection;
+  if (state.movementsError) {
+    movementsSection = `
+      <p class="resumen-empty">Para ver estadísticas de consumo, creá la pestaña <strong>Movements</strong> en tu
+      Google Sheet con los encabezados: id, date, type, name, quantity, unit, category.</p>`;
+  } else {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - STATS_DAYS);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const recent = state.movements.filter(m => m.date >= cutoffStr);
+
+    const cooked = new Map();
+    recent.filter(m => m.type === 'cocina').forEach(m => cooked.set(m.name, (cooked.get(m.name) || 0) + 1));
+    const cookedRows = [...cooked].sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([name, n]) => ({ label: `🍽️ ${escHtml(name)}`, value: n, suffix: '×' }));
+
+    const consumed = new Map();
+    recent.filter(m => m.type === 'descuento').forEach(m => {
+      if (m.category) consumed.set(m.category, (consumed.get(m.category) || 0) + 1);
+    });
+    const consumedRows = [...consumed].sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([cat, n]) => ({ label: `${catInfo(cat).emoji} ${catInfo(cat).label}`, value: n }));
+
+    const nRestock = recent.filter(m => m.type === 'reposicion').length;
+
+    movementsSection = recent.length === 0
+      ? `<p class="resumen-empty">Todavía no hay movimientos registrados. Cociná recetas o usá los botones −/+ y acá van a aparecer tus estadísticas.</p>`
+      : `
+        ${cookedRows.length ? `<h4 class="stats-subtitle">Recetas más cocinadas (últimos ${STATS_DAYS} días)</h4><div class="bar-list">${barListHtml(cookedRows)}</div>` : ''}
+        ${consumedRows.length ? `<h4 class="stats-subtitle">Consumo por categoría (últimos ${STATS_DAYS} días)</h4><div class="bar-list">${barListHtml(consumedRows)}</div>` : ''}
+        <p class="stats-note">🛒 ${nRestock} reposicion${nRestock !== 1 ? 'es' : ''} en los últimos ${STATS_DAYS} días</p>`;
+  }
+
+  return `
+    <h3 class="resumen-section-title">📈 Estadísticas</h3>
+    <div class="stats-card">
+      ${stockSection}
+      ${movementsSection}
+    </div>`;
 }
 
 // ════════════════════════════════════════════════════════════
 //  Inventory modal
 // ════════════════════════════════════════════════════════════
 
-function openModal(item = null) {
+function openModal(item = null, restock = false) {
   state.editingItem = item;
+  state.restockMode = restock;
   const form  = document.getElementById('item-form');
   const title = document.getElementById('modal-title');
 
   if (item) {
-    title.textContent = 'Editar producto';
+    title.textContent = restock ? `Reponer: ${item.name}` : 'Editar producto';
     form.elements['name'].value     = item.name;
-    form.elements['quantity'].value = item.quantity;
+    form.elements['quantity'].value = restock ? '' : item.quantity;
     form.elements['unit'].value     = item.unit;
     form.elements['category'].value = item.category;
-    form.elements['expiry'].value   = item.expiryDate || '';
+    form.elements['location'].value = item.location || 'heladera';
+    form.elements['expiry'].value   = restock ? '' : (item.expiryDate || '');
     form.elements['minQty'].value   = item.minQuantity > 0 ? item.minQuantity : '';
   } else {
     title.textContent = 'Agregar producto';
@@ -776,12 +971,17 @@ function openModal(item = null) {
   }
 
   document.getElementById('modal').classList.add('modal--open');
-  form.elements['name'].focus();
+  if (restock) {
+    form.elements['quantity'].focus();
+  } else {
+    form.elements['name'].focus();
+  }
 }
 
 function closeModal() {
   document.getElementById('modal').classList.remove('modal--open');
   state.editingItem = null;
+  state.restockMode = false;
 }
 
 async function handleFormSubmit(e) {
@@ -795,6 +995,7 @@ async function handleFormSubmit(e) {
     quantity:    parseFloat(fd.get('quantity')) || 0,
     unit:        fd.get('unit'),
     category:    fd.get('category'),
+    location:    fd.get('location') || 'heladera',
     expiryDate:  fd.get('expiry') || null,
     minQuantity: parseFloat(fd.get('minQty')) || 0,
   };
@@ -804,11 +1005,21 @@ async function handleFormSubmit(e) {
 
   try {
     if (state.editingItem) {
+      const wasRestock = state.restockMode;
+      const oldQty = state.editingItem.quantity;
       await api.updateItem(state.editingItem.id, { ...itemData, addedDate: state.editingItem.addedDate });
-      toast(`✏️ ${name} actualizado`);
+      if (wasRestock) {
+        const bought = round2(itemData.quantity - oldQty);
+        if (bought > 0) {
+          logMovements([{ type: 'reposicion', name, quantity: bought, unit: itemData.unit, category: itemData.category }]);
+        }
+        toast(`🛒 ${name} repuesto`);
+      } else {
+        toast(`✏️ ${name} actualizado`);
+      }
     } else {
       await api.createItem(itemData);
-      toast(`✅ ${name} agregado a la heladera`);
+      toast(`✅ ${name} agregado`);
     }
     state.items = await api.getItems();
     closeModal();
@@ -961,6 +1172,72 @@ async function deleteRecipe(id) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  Escáner de código de barras (BarcodeDetector + Open Food Facts)
+// ════════════════════════════════════════════════════════════
+
+let scanStream = null;
+let scanTimer  = null;
+
+async function openScanner() {
+  if (!('BarcodeDetector' in window)) {
+    toast('Tu navegador no soporta escaneo de códigos', 'error');
+    return;
+  }
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch {
+    toast('No pude acceder a la cámara', 'error');
+    return;
+  }
+
+  const video = document.getElementById('scanner-video');
+  video.srcObject = scanStream;
+  await video.play();
+  document.getElementById('scanner').classList.add('scanner--open');
+
+  const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] });
+  scanTimer = setInterval(async () => {
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length > 0) {
+        const code = codes[0].rawValue;
+        closeScanner();
+        await lookupBarcode(code);
+      }
+    } catch { /* frame no legible, seguimos intentando */ }
+  }, 350);
+}
+
+function closeScanner() {
+  clearInterval(scanTimer);
+  scanTimer = null;
+  if (scanStream) {
+    scanStream.getTracks().forEach(t => t.stop());
+    scanStream = null;
+  }
+  document.getElementById('scanner').classList.remove('scanner--open');
+}
+
+async function lookupBarcode(code) {
+  toast('🔎 Buscando producto...');
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_es,brands`);
+    const data = await res.json();
+    const p = data.product;
+    const baseName = p && (p.product_name_es || p.product_name);
+    if (baseName) {
+      const brand = p.brands ? ` ${p.brands.split(',')[0].trim()}` : '';
+      document.getElementById('field-name').value = `${baseName}${brand}`.trim();
+      toast('✅ Producto encontrado');
+    } else {
+      toast('No está en la base de datos, escribí el nombre a mano', 'error');
+    }
+  } catch {
+    toast('No pude consultar la base de códigos', 'error');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 //  Events
 // ════════════════════════════════════════════════════════════
 
@@ -1000,10 +1277,42 @@ function setupEvents() {
     if (del)  deleteItem(del.dataset.id);
   });
 
-  // ── Category filter ──
+  // ── Category / location filters ──
   document.getElementById('category-filters').addEventListener('click', e => {
     const chip = e.target.closest('.filter-chip');
-    if (chip) { state.filterCategory = chip.dataset.filter; renderApp(); }
+    if (!chip) return;
+    if (chip.dataset.loc) {
+      // Toggle de ubicación: tocarla de nuevo la desactiva.
+      state.filterLocation = state.filterLocation === chip.dataset.loc ? 'all' : chip.dataset.loc;
+    } else if (chip.dataset.filter === 'all') {
+      state.filterCategory = 'all';
+      state.filterLocation = 'all';
+    } else {
+      state.filterCategory = chip.dataset.filter;
+    }
+    renderApp();
+  });
+
+  // ── Escáner ──
+  document.getElementById('btn-scan').addEventListener('click', openScanner);
+  document.getElementById('scanner-close').addEventListener('click', closeScanner);
+
+  // ── Lista de compras ──
+  document.getElementById('shopping-content').addEventListener('click', e => {
+    const bought = e.target.closest('.btn-bought');
+    if (bought) {
+      const item = state.items.find(i => i.id === bought.dataset.id);
+      if (item) openModal(item, true);
+      return;
+    }
+    if (e.target.closest('#btn-copy-list')) {
+      navigator.clipboard.writeText(shoppingListText())
+        .then(() => toast('📋 Lista copiada'))
+        .catch(() => toast('No pude copiar la lista', 'error'));
+    }
+    if (e.target.closest('#btn-wa-list')) {
+      window.open(`https://wa.me/?text=${encodeURIComponent(shoppingListText())}`, '_blank');
+    }
   });
 
   // ── Recipe modal ──
@@ -1059,8 +1368,13 @@ function setupEvents() {
 
   // ── Close modals on Escape ──
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeRecipeModal(); }
+    if (e.key === 'Escape') { closeModal(); closeRecipeModal(); closeScanner(); }
   });
+
+  // ── Ocultar botón de escaneo si el navegador no lo soporta ──
+  if (!('BarcodeDetector' in window)) {
+    document.getElementById('btn-scan').style.display = 'none';
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1080,5 +1394,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   } finally {
     state.loading = false;
     renderApp();
+  }
+
+  // Movimientos aparte: si la pestaña Movements no existe todavía,
+  // la app funciona igual y las estadísticas muestran cómo crearla.
+  try {
+    state.movements = await api.getMovements();
+  } catch (err) {
+    console.warn('Movements no disponible:', err.message);
+    state.movementsError = true;
   }
 });

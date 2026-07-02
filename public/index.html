@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <div id="app-loading" class="app-loading">
@@ -28,9 +28,10 @@
     </header>
 
     <nav class="tab-nav">
-      <button class="tab-btn active" data-tab="inventory">📋 Inventario</button>
+      <button class="tab-btn active" data-tab="inventory">📋 Stock</button>
       <button class="tab-btn" data-tab="alerts">🔔 Alertas</button>
       <button class="tab-btn" data-tab="recipes">📖 Recetas</button>
+      <button class="tab-btn" data-tab="shopping">🛒 Compras</button>
       <button class="tab-btn" data-tab="resumen">📊 Resumen</button>
     </nav>
 
@@ -83,6 +84,11 @@
 
     </div>
 
+    <!-- ── Compras ── -->
+    <div id="tab-shopping" class="tab-content" style="display:none">
+      <div id="shopping-content"></div>
+    </div>
+
     <!-- ── Resumen ── -->
     <div id="tab-resumen" class="tab-content" style="display:none">
       <div id="resumen-content"></div>
@@ -101,8 +107,11 @@
       <form id="item-form" class="item-form" novalidate>
         <div class="form-group">
           <label for="field-name">Nombre *</label>
-          <input type="text" id="field-name" name="name" required
-            autocomplete="off" placeholder="ej: Leche entera">
+          <div class="name-row">
+            <input type="text" id="field-name" name="name" required
+              autocomplete="off" placeholder="ej: Leche entera">
+            <button type="button" id="btn-scan" class="btn-scan" title="Escanear código de barras">📷</button>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -138,6 +147,14 @@
             <option value="huevos">🥚 Huevos</option>
             <option value="postres">🍮 Postres</option>
             <option value="otros">📦 Otros</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="field-location">Ubicación</label>
+          <select id="field-location" name="location">
+            <option value="heladera">❄️ Heladera</option>
+            <option value="freezer">🧊 Freezer</option>
+            <option value="alacena">🗄️ Alacena</option>
           </select>
         </div>
         <div class="form-group">
@@ -209,8 +226,16 @@
 
   </div><!-- /#app-main -->
 
+  <!-- ── Escáner de código de barras ── -->
+  <div id="scanner" class="scanner">
+    <video id="scanner-video" playsinline muted></video>
+    <div class="scanner-frame"></div>
+    <p class="scanner-hint">Apuntá al código de barras</p>
+    <button id="scanner-close" class="scanner-close">✕ Cancelar</button>
+  </div>
+
   <div id="toast-container"></div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
