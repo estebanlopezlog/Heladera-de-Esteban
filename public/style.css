@@ -1315,6 +1315,55 @@ input:focus, select:focus, textarea:focus {
   margin-top: 8px;
 }
 
+/* ── Compras: agregar item manual ── */
+.shop-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.shop-add input {
+  flex: 1;
+  padding: 11px 14px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 9999px;
+  font-family: var(--font);
+  font-size: .9375rem;
+  color: var(--gray-900);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.shop-add input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(14,165,233,.12);
+}
+
+.shop-add .btn {
+  width: 46px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.shop-card--extra { border-left-color: var(--primary); }
+
+/* ── Resumen: recetas urgentes (anti-desperdicio) ── */
+.plates-card--urgent {
+  border-left-color: var(--warning);
+  background: linear-gradient(0deg, rgba(245,158,11,.06), rgba(245,158,11,.06)), var(--surface);
+}
+
+.plates-card--urgent .plates-card-count { color: var(--warning-dark); }
+
+.urgent-note {
+  font-size: .8125rem;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
 /* ── Modo oscuro ── */
 @media (prefers-color-scheme: dark) {
   :root {

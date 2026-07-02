@@ -16,6 +16,7 @@ const itemsTable = new SheetTable('Items', [
 const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'steps', 'servings', 'createdDate']);
 const ingredientsTable = new SheetTable('RecipeIngredients', ['recipeId', 'name', 'quantity', 'unit']);
 const movementsTable = new SheetTable('Movements', ['id', 'date', 'type', 'name', 'quantity', 'unit', 'category']);
+const extrasTable = new SheetTable('ShoppingExtras', ['id', 'name']);
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -208,6 +209,40 @@ app.post('/api/movements', async (req, res) => {
     }));
     await movementsTable.appendMany(rows);
     res.status(201).json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+//  Shopping extras (items manuales de la lista de compras)
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/shopping-extras', async (req, res) => {
+  try {
+    res.json(await extrasTable.getAll());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/shopping-extras', async (req, res) => {
+  try {
+    const extra = { id: generateId(), name: req.body.name };
+    await extrasTable.append(extra);
+    res.status(201).json(extra);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/shopping-extras/:id', async (req, res) => {
+  try {
+    await extrasTable.delete(req.params.id);
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

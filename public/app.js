@@ -27,6 +27,7 @@ const LOCATIONS = [
 ];
 
 const EXPIRY_WARN_DAYS = 3;
+const URGENT_COOK_DAYS = 5;
 const STATS_DAYS = 30;
 
 // ════════════════════════════════════════════════════════════
@@ -62,6 +63,10 @@ const api = {
 
   getMovements:  ()     => apiRequest('/movements'),
   logMovements:  (list) => apiRequest('/movements', { method: 'POST', body: JSON.stringify(list) }),
+
+  getExtras:     ()     => apiRequest('/shopping-extras'),
+  createExtra:   (name) => apiRequest('/shopping-extras', { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteExtra:   (id)   => apiRequest(`/shopping-extras/${id}`, { method: 'DELETE' }),
 };
 
 /** Registra movimientos para estadísticas. Nunca corta el flujo principal si falla. */
@@ -207,6 +212,27 @@ function checkRecipeAgainstStock(recipe, inventoryItems) {
   });
 }
 
+/**
+ * Urgencia anti-desperdicio de una receta cocinable: cuántos días faltan para
+ * que venza el primer lote que consumiría (FEFO). Devuelve null si la receta
+ * no se puede cocinar o si ningún lote a consumir tiene fecha de vencimiento.
+ */
+function recipeUrgency(recipe, inventoryItems) {
+  const results = checkRecipeAgainstStock(recipe, inventoryItems);
+  if (recipe.ingredients.length === 0 || results.some(r => r.status !== 'available')) return null;
+
+  let urgent = null;
+  results.forEach(r => {
+    const firstLot = r.lots[0]; // el lote que el FEFO consumiría primero
+    if (!firstLot || !firstLot.expiryDate) return;
+    const days = daysUntil(firstLot.expiryDate);
+    if (urgent === null || days < urgent.days) {
+      urgent = { days, itemName: firstLot.name };
+    }
+  });
+  return urgent;
+}
+
 /** Cuántos platos se pueden cocinar de esta receta con el stock disponible. */
 function computeMaxPlates(recipe, inventoryItems) {
   const results = checkRecipeAgainstStock(recipe, inventoryItems);
@@ -241,6 +267,9 @@ const state = {
   // movimientos (estadísticas)
   movements:      [],
   movementsError: false,
+  // items manuales de la lista de compras
+  extras:      [],
+  extrasError: false,
   // loading
   loading: true,
 };
@@ -433,8 +462,9 @@ function itemCardHtml(item) {
           <button class="qty-btn qty-plus" data-id="${item.id}" title="Sumar ${unitStep(item.unit)} ${item.unit}">+</button>
         </div>
         <div class="item-actions">
-          <button class="btn-icon btn-edit"   data-id="${item.id}" title="Editar">✏️</button>
-          <button class="btn-icon btn-delete" data-id="${item.id}" title="Eliminar">🗑️</button>
+          <button class="btn-icon btn-duplicate" data-id="${item.id}" title="Nuevo lote (duplicar)">📑</button>
+          <button class="btn-icon btn-edit"      data-id="${item.id}" title="Editar">✏️</button>
+          <button class="btn-icon btn-delete"    data-id="${item.id}" title="Eliminar">🗑️</button>
         </div>
       </div>
     </div>`;
@@ -769,16 +799,29 @@ function getShoppingList() {
 }
 
 function shoppingListText() {
-  const lines = getShoppingList().map(({ item, reason }) => `• ${item.name} — ${reason}`);
+  const lines = [
+    ...getShoppingList().map(({ item, reason }) => `• ${item.name} — ${reason}`),
+    ...state.extras.map(x => `• ${x.name}`),
+  ];
   return `🛒 Lista de compras (Mi Heladera):\n${lines.join('\n')}`;
 }
 
 function renderShopping() {
   const el = document.getElementById('shopping-content');
   const list = getShoppingList();
+  const total = list.length + state.extras.length;
 
-  if (list.length === 0) {
+  const addRow = state.extrasError
+    ? `<p class="resumen-empty">Para agregar items manuales, creá la pestaña <strong>ShoppingExtras</strong> en tu Google Sheet con los encabezados: id, name.</p>`
+    : `
+    <form id="extra-form" class="shop-add">
+      <input type="text" id="extra-input" placeholder="Agregar otra cosa (ej: papel de cocina)" autocomplete="off">
+      <button type="submit" class="btn btn-primary">+</button>
+    </form>`;
+
+  if (total === 0) {
     el.innerHTML = `
+      ${addRow}
       <div class="empty-state">
         <div class="empty-icon">🎉</div>
         <p>¡No hay nada para comprar!</p>
@@ -800,15 +843,48 @@ function renderShopping() {
       </div>`;
   }).join('');
 
+  const extraCards = state.extras.map(x => `
+    <div class="shop-card shop-card--extra">
+      <span class="alert-emoji">🧺</span>
+      <div class="alert-info">
+        <span class="alert-name">${escHtml(x.name)}</span>
+        <span class="alert-desc">Agregado a mano</span>
+      </div>
+      <button class="btn-bought btn-bought-extra" data-id="${x.id}">✔️ Comprado</button>
+    </div>`).join('');
+
   el.innerHTML = `
     <div class="shop-header">
-      <p class="shop-count">${list.length} producto${list.length !== 1 ? 's' : ''} para comprar</p>
+      <p class="shop-count">${total} producto${total !== 1 ? 's' : ''} para comprar</p>
       <div class="shop-actions">
         <button id="btn-copy-list" class="btn btn-secondary">📋 Copiar</button>
         <button id="btn-wa-list" class="btn btn-primary">💬 WhatsApp</button>
       </div>
     </div>
-    <div class="resumen-section">${cards}</div>`;
+    ${addRow}
+    <div class="resumen-section">${cards}${extraCards}</div>`;
+}
+
+async function addExtra(name) {
+  try {
+    const extra = await api.createExtra(name);
+    state.extras.push(extra);
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  }
+}
+
+async function removeExtra(id) {
+  const extra = state.extras.find(x => x.id === id);
+  try {
+    await api.deleteExtra(id);
+    state.extras = state.extras.filter(x => x.id !== id);
+    if (extra) toast(`✔️ ${extra.name} comprado`);
+    renderApp();
+  } catch (err) {
+    reportError(err);
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -851,6 +927,30 @@ function renderResumen(alerts) {
           </div>
         </div>`).join('');
 
+  // Anti-desperdicio: recetas cocinables que usan lotes por vencer (FEFO).
+  const urgent = state.recipes
+    .map(recipe => ({ recipe, urgency: recipeUrgency(recipe, stock) }))
+    .filter(({ urgency }) => urgency && urgency.days <= URGENT_COOK_DAYS)
+    .sort((a, b) => a.urgency.days - b.urgency.days);
+
+  const urgentSection = urgent.length === 0 ? '' : `
+    <h3 class="resumen-section-title">⏳ Cocinalas antes de que venza</h3>
+    <div class="resumen-section">
+      ${urgent.map(({ recipe, urgency }) => {
+        const when = urgency.days === 0 ? 'vence hoy'
+          : urgency.days === 1 ? 'vence mañana'
+          : `vence en ${urgency.days} días`;
+        return `
+          <div class="plates-card plates-card--urgent" data-id="${recipe.id}">
+            <div>
+              <div class="plates-card-name">${escHtml(recipe.name)}</div>
+              <div class="urgent-note">Usa ${escHtml(urgency.itemName)}, que ${when}</div>
+            </div>
+            <div class="plates-card-count">⏳ ${urgency.days === 0 ? 'hoy' : `${urgency.days} día${urgency.days !== 1 ? 's' : ''}`}</div>
+          </div>`;
+      }).join('')}
+    </div>`;
+
   document.getElementById('resumen-content').innerHTML = `
     <div class="stats-row">
       <div class="stat-card">
@@ -866,6 +966,8 @@ function renderResumen(alerts) {
         <div class="stat-label">Recetas listas</div>
       </div>
     </div>
+
+    ${urgentSection}
 
     <h3 class="resumen-section-title">⚠️ Stock crítico</h3>
     <div class="resumen-section">${criticalHtml}</div>
@@ -982,6 +1084,21 @@ function closeModal() {
   document.getElementById('modal').classList.remove('modal--open');
   state.editingItem = null;
   state.restockMode = false;
+}
+
+/** Nuevo lote: abre el formulario de alta con los datos del producto, pero cantidad y vencimiento vacíos. */
+function duplicateItem(item) {
+  openModal(); // modo alta (editingItem = null)
+  const form = document.getElementById('item-form');
+  document.getElementById('modal-title').textContent = `Nuevo lote: ${item.name}`;
+  form.elements['name'].value     = item.name;
+  form.elements['unit'].value     = item.unit;
+  form.elements['category'].value = item.category;
+  form.elements['location'].value = item.location || 'heladera';
+  form.elements['minQty'].value   = item.minQuantity > 0 ? item.minQuantity : '';
+  form.elements['quantity'].value = '';
+  form.elements['expiry'].value   = '';
+  form.elements['quantity'].focus();
 }
 
 async function handleFormSubmit(e) {
@@ -1269,10 +1386,12 @@ function setupEvents() {
   document.getElementById('items-list').addEventListener('click', e => {
     const minus = e.target.closest('.qty-minus');
     const plus  = e.target.closest('.qty-plus');
+    const dup   = e.target.closest('.btn-duplicate');
     const edit  = e.target.closest('.btn-edit');
     const del   = e.target.closest('.btn-delete');
     if (minus) adjustQuantity(minus.dataset.id, -1);
     if (plus)  adjustQuantity(plus.dataset.id, +1);
+    if (dup)  { const item = state.items.find(i => i.id === dup.dataset.id);  if (item) duplicateItem(item); }
     if (edit) { const item = state.items.find(i => i.id === edit.dataset.id); if (item) openModal(item); }
     if (del)  deleteItem(del.dataset.id);
   });
@@ -1298,7 +1417,22 @@ function setupEvents() {
   document.getElementById('scanner-close').addEventListener('click', closeScanner);
 
   // ── Lista de compras ──
+  document.getElementById('shopping-content').addEventListener('submit', e => {
+    if (e.target.id !== 'extra-form') return;
+    e.preventDefault();
+    const input = document.getElementById('extra-input');
+    const name = input.value.trim();
+    if (!name) return;
+    input.value = '';
+    addExtra(name);
+  });
+
   document.getElementById('shopping-content').addEventListener('click', e => {
+    const boughtExtra = e.target.closest('.btn-bought-extra');
+    if (boughtExtra) {
+      removeExtra(boughtExtra.dataset.id);
+      return;
+    }
     const bought = e.target.closest('.btn-bought');
     if (bought) {
       const item = state.items.find(i => i.id === bought.dataset.id);
@@ -1396,12 +1530,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderApp();
   }
 
-  // Movimientos aparte: si la pestaña Movements no existe todavía,
-  // la app funciona igual y las estadísticas muestran cómo crearla.
+  // Movimientos y extras aparte: si sus pestañas no existen todavía,
+  // la app funciona igual y cada sección explica cómo crearlas.
   try {
     state.movements = await api.getMovements();
   } catch (err) {
     console.warn('Movements no disponible:', err.message);
     state.movementsError = true;
+  }
+  try {
+    state.extras = await api.getExtras();
+  } catch (err) {
+    console.warn('ShoppingExtras no disponible:', err.message);
+    state.extrasError = true;
   }
 });
