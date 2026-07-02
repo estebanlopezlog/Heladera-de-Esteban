@@ -1023,6 +1023,22 @@ function statsHtml() {
     const cookedRows = [...cooked].sort((a, b) => b[1] - a[1]).slice(0, 5)
       .map(([name, n]) => ({ label: `🍽️ ${escHtml(name)}`, value: n, suffix: '×' }));
 
+    // Productos más consumidos: veces que se descontó cada uno (comparable entre unidades)
+    // y cantidad total acumulada para mostrar de referencia.
+    const products = new Map();
+    recent.filter(m => m.type === 'descuento').forEach(m => {
+      const p = products.get(m.name) || { times: 0, total: 0, unit: m.unit };
+      p.times += 1;
+      p.total = round2(p.total + (m.quantity || 0));
+      products.set(m.name, p);
+    });
+    const productRows = [...products].sort((a, b) => b[1].times - a[1].times).slice(0, 5)
+      .map(([name, p]) => ({
+        label: `${escHtml(name)} (${p.total} ${p.unit})`,
+        value: p.times,
+        suffix: '×',
+      }));
+
     const consumed = new Map();
     recent.filter(m => m.type === 'descuento').forEach(m => {
       if (m.category) consumed.set(m.category, (consumed.get(m.category) || 0) + 1);
@@ -1035,6 +1051,7 @@ function statsHtml() {
     movementsSection = recent.length === 0
       ? `<p class="resumen-empty">Todavía no hay movimientos registrados. Cociná recetas o usá los botones −/+ y acá van a aparecer tus estadísticas.</p>`
       : `
+        ${productRows.length ? `<h4 class="stats-subtitle">Productos más consumidos (últimos ${STATS_DAYS} días)</h4><div class="bar-list">${barListHtml(productRows)}</div>` : ''}
         ${cookedRows.length ? `<h4 class="stats-subtitle">Recetas más cocinadas (últimos ${STATS_DAYS} días)</h4><div class="bar-list">${barListHtml(cookedRows)}</div>` : ''}
         ${consumedRows.length ? `<h4 class="stats-subtitle">Consumo por categoría (últimos ${STATS_DAYS} días)</h4><div class="bar-list">${barListHtml(consumedRows)}</div>` : ''}
         <p class="stats-note">🛒 ${nRestock} reposicion${nRestock !== 1 ? 'es' : ''} en los últimos ${STATS_DAYS} días</p>`;
