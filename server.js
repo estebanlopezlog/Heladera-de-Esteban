@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const itemsTable = new SheetTable('Items', [
   'id', 'name', 'quantity', 'unit', 'category', 'expiryDate', 'minQuantity', 'addedDate', 'location',
 ]);
-const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'steps', 'servings', 'createdDate']);
+const recipesTable = new SheetTable('Recipes', ['id', 'name', 'notes', 'steps', 'servings', 'createdDate', 'sourceUrl']);
 const ingredientsTable = new SheetTable('RecipeIngredients', ['recipeId', 'name', 'quantity', 'unit']);
 const movementsTable = new SheetTable('Movements', ['id', 'date', 'type', 'name', 'quantity', 'unit', 'category']);
 const extrasTable = new SheetTable('ShoppingExtras', ['id', 'name']);
@@ -99,6 +99,7 @@ app.get('/api/recipes', async (req, res) => {
       steps: r.steps || '',
       servings: parseInt(r.servings, 10) || 1,
       createdDate: r.createdDate,
+      sourceUrl: r.sourceUrl || '',
       ingredients: ingredients
         .filter(ing => ing.recipeId === r.id)
         .map(ing => ({
@@ -124,6 +125,7 @@ app.post('/api/recipes', async (req, res) => {
       steps: req.body.steps || '',
       servings: req.body.servings || 1,
       createdDate: new Date().toISOString().slice(0, 10),
+      sourceUrl: req.body.sourceUrl || '',
     };
     await recipesTable.append(recipe);
     for (const ing of req.body.ingredients || []) {
@@ -148,6 +150,7 @@ app.put('/api/recipes/:id', async (req, res) => {
       steps: req.body.steps || '',
       servings: req.body.servings || 1,
       createdDate: req.body.createdDate || '',
+      sourceUrl: req.body.sourceUrl || '',
     });
     await ingredientsTable.deleteWhere('recipeId', id);
     for (const ing of req.body.ingredients || []) {

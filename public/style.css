@@ -952,6 +952,23 @@ input:focus, select:focus, textarea:focus {
   line-height: 1.55;
 }
 
+.recipe-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font);
+  font-size: .8438rem;
+  font-weight: 700;
+  color: var(--primary-deep);
+  background: var(--primary-light);
+  padding: 8px 14px;
+  border-radius: 9999px;
+  text-decoration: none;
+  margin-bottom: 14px;
+}
+
+.recipe-source-link:hover { filter: brightness(.96); }
+
 /* ── Recipe modal — ingredient rows ── */
 .ingredients-container {
   display: flex;

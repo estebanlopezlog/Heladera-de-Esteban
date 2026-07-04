@@ -633,11 +633,12 @@ function recipeCardHtml(recipe) {
   const plates = stockStatus === 'green' ? computeMaxPlates(recipe, nonExpiredItems()) : 0;
   const platesInfo = plates > 0 ? ` · rinde ${plates} plato${plates !== 1 ? 's' : ''}` : '';
   const notes = recipe.notes ? `<div class="recipe-book-notes">${escHtml(recipe.notes)}</div>` : '';
+  const sourceBadge = recipe.sourceUrl ? ' 🔗' : '';
   return `
     <div class="recipe-book-card recipe-book-card--${stockStatus}">
       <div class="recipe-book-icon"><span>🍽️</span></div>
       <div class="recipe-book-info">
-        <div class="recipe-book-name">${escHtml(recipe.name)}</div>
+        <div class="recipe-book-name">${escHtml(recipe.name)}${sourceBadge}</div>
         <div class="recipe-book-meta">${count} ingrediente${count !== 1 ? 's' : ''}${platesInfo}</div>
         <span class="recipe-stock-pill recipe-stock-pill--${stockStatus}">${RECIPE_STATUS_LABEL[stockStatus]}</span>
         ${notes}
@@ -667,6 +668,9 @@ function renderRecipeCheckView() {
     ? `<p class="check-recipe-notes">${escHtml(recipe.notes)}</p>` : '';
   const stepsHtml = recipe.steps
     ? `<div class="check-recipe-steps"><h3>👨‍🍳 Pasos</h3><p>${escHtml(recipe.steps)}</p></div>` : '';
+  const sourceHtml = recipe.sourceUrl
+    ? `<a class="recipe-source-link" href="${escHtml(recipe.sourceUrl)}" target="_blank" rel="noopener noreferrer">🔗 Ver receta original</a>`
+    : '';
 
   const rows = results.map(r => {
     const icon   = r.status === 'available' ? '✅' : r.status === 'missing' ? '❌' : '⚠️';
@@ -700,6 +704,7 @@ function renderRecipeCheckView() {
   el.innerHTML = `
     <h2 class="check-recipe-title">${escHtml(recipe.name)}</h2>
     ${notesHtml}
+    ${sourceHtml}
     <div class="recipe-result">
       <div class="recipe-verdict recipe-verdict--${canCook ? 'yes' : 'no'}">
         ${canCook
@@ -1197,6 +1202,7 @@ function openRecipeModal(recipe = null) {
   const notesEl     = document.getElementById('recipe-field-notes');
   const stepsEl     = document.getElementById('recipe-field-steps');
   const servingsEl  = document.getElementById('recipe-field-servings');
+  const sourceEl    = document.getElementById('recipe-field-source');
   const container   = document.getElementById('ingredients-container');
 
   container.innerHTML = '';
@@ -1207,6 +1213,7 @@ function openRecipeModal(recipe = null) {
     notesEl.value       = recipe.notes || '';
     stepsEl.value       = recipe.steps || '';
     servingsEl.value    = recipe.servings || 1;
+    sourceEl.value      = recipe.sourceUrl || '';
     recipe.ingredients.forEach(ing => addIngredientRow(container, ing));
   } else {
     title.textContent = 'Nueva receta';
@@ -1214,6 +1221,7 @@ function openRecipeModal(recipe = null) {
     notesEl.value     = '';
     stepsEl.value     = '';
     servingsEl.value  = 1;
+    sourceEl.value    = '';
     addIngredientRow(container);
   }
 
@@ -1285,6 +1293,7 @@ async function handleRecipeFormSubmit(e) {
     notes: document.getElementById('recipe-field-notes').value.trim(),
     steps: document.getElementById('recipe-field-steps').value.trim(),
     servings: parseInt(document.getElementById('recipe-field-servings').value, 10) || 1,
+    sourceUrl: document.getElementById('recipe-field-source').value.trim(),
   };
 
   const submitBtn = e.target.querySelector('button[type="submit"]');
