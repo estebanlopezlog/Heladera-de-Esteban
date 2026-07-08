@@ -162,10 +162,13 @@ function getAlerts(items) {
   const alerts = [];
   items.forEach(item => {
     const status = getItemStatus(item);
-    if (status === 'expired')  alerts.push({ type: 'expired',  item, days: daysUntil(item.expiryDate) });
-    if (status === 'expiring') alerts.push({ type: 'expiring', item, days: daysUntil(item.expiryDate) });
-    if (isOut(item))           alerts.push({ type: 'low',      item, out: true });
-    else if (isLow(item))      alerts.push({ type: 'low',      item, out: false });
+    // Sin stock no hay nada que se esté por perder: la alerta de vencimiento no aplica.
+    if (!isOut(item)) {
+      if (status === 'expired')  alerts.push({ type: 'expired',  item, days: daysUntil(item.expiryDate) });
+      if (status === 'expiring') alerts.push({ type: 'expiring', item, days: daysUntil(item.expiryDate) });
+    }
+    if (isOut(item))      alerts.push({ type: 'low', item, out: true });
+    else if (isLow(item)) alerts.push({ type: 'low', item, out: false });
   });
   return alerts;
 }
