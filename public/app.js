@@ -814,6 +814,61 @@ function shoppingListText() {
   return `🛒 Lista de compras (Mi Heladera):\n${lines.join('\n')}`;
 }
 
+// ════════════════════════════════════════════════════════════
+//  Exportar stock completo para pedirle recetas a una IA
+// ════════════════════════════════════════════════════════════
+
+function buildStockExportText() {
+  const t = localToday();
+  const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+
+  const lines = [
+    'Hola! Te paso el stock completo de mi cocina para que me recomiendes qué cocinar.',
+    '',
+    'Instrucciones:',
+    '- Priorizá usar los productos marcados [POR VENCER].',
+    '- Los marcados [VENCIDO] NO se pueden usar.',
+    '- Sugerime 2 o 3 recetas posibles con lo que tengo, con paso a paso simple.',
+    '- Para cada receta decime cuántas porciones me saldrían y qué me convendría comprar para completarla o mejorarla.',
+    '',
+    `📦 MI STOCK (al ${fmtDate(todayIso)}):`,
+  ];
+
+  LOCATIONS.forEach(loc => {
+    const items = state.items
+      .filter(i => (i.location || 'heladera') === loc.id && i.quantity > 0)
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    if (items.length === 0) return;
+
+    lines.push('', `${loc.emoji} ${loc.label.toUpperCase()}`);
+    items.forEach(i => {
+      const status = getItemStatus(i);
+      let vto = 'sin vencimiento';
+      if (i.expiryDate) {
+        const d = daysUntil(i.expiryDate);
+        if (status === 'expired') {
+          vto = `venció el ${fmtDate(i.expiryDate)} [VENCIDO]`;
+        } else if (status === 'expiring') {
+          vto = d === 0
+            ? `vence HOY [POR VENCER]`
+            : `vence en ${d} día${d !== 1 ? 's' : ''} (${fmtDate(i.expiryDate)}) [POR VENCER]`;
+        } else {
+          vto = `vence el ${fmtDate(i.expiryDate)} (faltan ${d} días)`;
+        }
+      }
+      const icon = status === 'expired' ? '🚫' : status === 'expiring' ? '⚠️' : '✅';
+      lines.push(`${icon} ${i.name}: ${i.quantity} ${i.unit} — ${vto}`);
+    });
+  });
+
+  const outs = state.items.filter(isOut).map(i => i.name);
+  if (outs.length) {
+    lines.push('', `Sin stock (no los cuentes): ${outs.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
 function renderShopping() {
   const el = document.getElementById('shopping-content');
   const list = getShoppingList();
@@ -1418,6 +1473,24 @@ function setupEvents() {
   document.getElementById('search-input').addEventListener('input', e => {
     state.searchQuery = e.target.value;
     renderItemsList();
+  });
+
+  // ── Exportar stock para IA ──
+  document.getElementById('btn-export-copy').addEventListener('click', () => {
+    if (state.items.length === 0) { toast('No hay productos para exportar', 'error'); return; }
+    navigator.clipboard.writeText(buildStockExportText())
+      .then(() => toast('🤖 Stock copiado — pegalo en tu IA o WhatsApp'))
+      .catch(() => toast('No pude copiar el texto', 'error'));
+  });
+
+  document.getElementById('btn-export-share').addEventListener('click', async () => {
+    if (state.items.length === 0) { toast('No hay productos para exportar', 'error'); return; }
+    const text = buildStockExportText();
+    if (navigator.share) {
+      try { await navigator.share({ text }); } catch { /* usuario canceló */ }
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    }
   });
 
   // ── Inventory modal ──

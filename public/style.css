@@ -276,6 +276,20 @@ body {
 
 .search-box input[type="text"]::placeholder { color: var(--gray-400); }
 
+/* ── Exportar stock para IA ── */
+.export-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.export-row .btn {
+  flex: 1;
+  padding: 10px 8px;
+  font-size: .8438rem;
+  white-space: nowrap;
+}
+
 /* ── Category filter chips ── */
 .category-filters {
   display: flex;

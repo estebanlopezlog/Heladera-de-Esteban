@@ -252,5 +252,21 @@ app.delete('/api/shopping-extras/:id', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+//  Keep-alive: en el plan free de Render el servicio se duerme a los
+//  ~15 min sin tráfico. Nos auto-pingeamos cada 10 min para evitarlo.
+//  Render define RENDER_EXTERNAL_URL automáticamente en producción.
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/ping', (req, res) => res.json({ ok: true }));
+
+const KEEP_ALIVE_URL = process.env.RENDER_EXTERNAL_URL;
+if (KEEP_ALIVE_URL) {
+  setInterval(() => {
+    fetch(`${KEEP_ALIVE_URL}/api/ping`).catch(() => { /* sin red, reintenta en el próximo ciclo */ });
+  }, 10 * 60 * 1000);
+  console.log(`Keep-alive activo hacia ${KEEP_ALIVE_URL}`);
+}
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Heladera de Esteban escuchando en puerto ${PORT}`));
