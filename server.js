@@ -254,18 +254,37 @@ app.delete('/api/shopping-extras/:id', async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 //  Keep-alive: en el plan free de Render el servicio se duerme a los
-//  ~15 min sin tráfico. Nos auto-pingeamos cada 10 min para evitarlo.
-//  Render define RENDER_EXTERNAL_URL automáticamente en producción.
+//  ~15 min sin tráfico. Nos auto-pingeamos cada 10 min, pero SOLO
+//  dentro de una franja horaria (por defecto 18-23hs Argentina) para
+//  no gastar las 750hs/mes gratis compartidas con otros servicios.
+//  Apagalo del todo con KEEP_ALIVE_ENABLED=false si preferís dejarla
+//  dormir y tolerar la espera de arranque.
 // ════════════════════════════════════════════════════════════
 
 app.get('/api/ping', (req, res) => res.json({ ok: true }));
 
-const KEEP_ALIVE_URL = process.env.RENDER_EXTERNAL_URL;
-if (KEEP_ALIVE_URL) {
+const KEEP_ALIVE_URL     = process.env.RENDER_EXTERNAL_URL;
+const KEEP_ALIVE_ENABLED = process.env.KEEP_ALIVE_ENABLED !== 'false';
+const KEEP_ALIVE_START_HOUR = parseInt(process.env.KEEP_ALIVE_START_HOUR, 10) || 18; // 18:00
+const KEEP_ALIVE_END_HOUR   = parseInt(process.env.KEEP_ALIVE_END_HOUR, 10)   || 23; // 23:00
+const KEEP_ALIVE_TIMEZONE   = process.env.KEEP_ALIVE_TIMEZONE || 'America/Argentina/Buenos_Aires';
+
+function isWithinKeepAliveWindow() {
+  const hour = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: KEEP_ALIVE_TIMEZONE, hour: 'numeric', hour12: false }).format(new Date()),
+    10
+  );
+  return hour >= KEEP_ALIVE_START_HOUR && hour < KEEP_ALIVE_END_HOUR;
+}
+
+if (KEEP_ALIVE_URL && KEEP_ALIVE_ENABLED) {
   setInterval(() => {
+    if (!isWithinKeepAliveWindow()) return;
     fetch(`${KEEP_ALIVE_URL}/api/ping`).catch(() => { /* sin red, reintenta en el próximo ciclo */ });
   }, 10 * 60 * 1000);
-  console.log(`Keep-alive activo hacia ${KEEP_ALIVE_URL}`);
+  console.log(`Keep-alive activo hacia ${KEEP_ALIVE_URL} (${KEEP_ALIVE_START_HOUR}-${KEEP_ALIVE_END_HOUR}hs ${KEEP_ALIVE_TIMEZONE})`);
+} else if (KEEP_ALIVE_URL) {
+  console.log('Keep-alive desactivado (KEEP_ALIVE_ENABLED=false) — la app puede dormirse por inactividad.');
 }
 
 const PORT = process.env.PORT || 3000;
